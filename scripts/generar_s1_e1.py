@@ -1,597 +1,325 @@
 #!/usr/bin/env python3
 """
-generar_s1_e1.py
-Genera el Entregable 1 de Semestre 1 (S1_E1): Análisis y Diseño de Red.
-Cumple con la rúbrica oficial de Proyecto Integrador UPeU / Co-Logistic S.A.C.
-Sin overrides manuales de fuente/color/tamaño: usa estrictamente los estilos del documento.
+generar_s1_e1.py — Entregable S1_E1: Análisis y Diseño de Red.
+
+Toma la plantilla de la rúbrica y la llena con los datos REALES del diseño (cologistic-infra: especificacion/, reglas de
+pfSense y topologia.html). Las tablas salen de datos.py; las figuras, de ../figuras (scripts/capturar_figuras.js).
+Solo usa los estilos del documento (sin fuentes, colores ni tamaños manuales).
+
+    python3 scripts/generar_s1_e1.py
 """
-
-import sys
 import docx
-from copy import deepcopy
 
-TEMPLATE_PATH = "/Users/abelguevarah/Desktop/perfil-egreso/rubrica-entregables/templates/s1_e1_analisis_y_diseno_de_red_nlcwgpwptr.docx"
-OUTPUT_PATH = "/Users/abelguevarah/Desktop/perfil-egreso/rubrica-entregables/entregables/s1_e1_analisis_y_diseno_de_red.docx"
+import datos
+from comun import cambiar_texto_que_contiene, llenar_tabla, mitad_superior, poner_figura, reemplazar_seccion
 
-def populate_table(tbl, rows_data):
-    """Reemplaza filas de datos de una tabla manteniendo el formato y bordes de celda del template."""
-    ref_row = tbl.rows[1] if len(tbl.rows) > 1 else tbl.rows[0]
-    ref_tcPr_list = [c._tc.get_or_add_tcPr() for c in ref_row.cells]
-    
-    # Eliminar filas existentes de ejemplo
-    for r in list(tbl.rows[1:]):
-        tbl._tbl.remove(r._tr)
-        
-    # Añadir nuevas filas
-    for row_values in rows_data:
-        new_tr = tbl.add_row()
-        for col_idx, val in enumerate(row_values):
-            cell = new_tr.cells[col_idx]
-            ref_tcPr = ref_tcPr_list[col_idx]
-            borders = ref_tcPr.find('{http://schemas.openxmlformats.org/wordprocessingml/2006/main}tcBorders')
-            mar = ref_tcPr.find('{http://schemas.openxmlformats.org/wordprocessingml/2006/main}tcMar')
-            new_tcPr = cell._tc.get_or_add_tcPr()
-            if borders is not None:
-                new_tcPr.append(deepcopy(borders))
-            if mar is not None:
-                new_tcPr.append(deepcopy(mar))
-            cell.text = str(val)
-            if cell.paragraphs:
-                cell.paragraphs[0].style = 'Normal'
+RAIZ = datos.Path(__file__).resolve().parents[1]
+PLANTILLA = RAIZ / "templates/s1_e1_analisis_y_diseno_de_red_nlcwgpwptr.docx"
+SALIDA = RAIZ / "entregables/s1_e1_analisis_y_diseno_de_red.docx"
 
-def replace_section_content(doc, heading_text, new_items):
-    """
-    Localiza heading_text en el documento, elimina los párrafos de guía que le siguen
-    (hasta el siguiente heading o tabla) e inserta los nuevos párrafos usando los estilos definidos.
-    new_items es una lista de tuplas: (style_name, text)
-    """
-    target_h = None
-    for p in doc.paragraphs:
-        if p.text.strip() == heading_text.strip():
-            target_h = p
-            break
-            
-    if target_h is None:
-        print(f"[WARN] Heading no encontrado: '{heading_text}'")
-        return
+N = "Normal"
+L = "List Paragraph"
+NUBE = datos.nube()
+TUNEL = NUBE["tuneles"]["wireguard-nube"]
+REGLAS = datos.resumen_reglas()
+SW = datos.switches()
+VM = datos.totales_vm()
+N_VLAN = len(datos.vlans())
+ZONAS = datos.zonas()
+ZONAS_INTERNAS = [z for z in ZONAS.values() if not z["externa"]]
 
-    # Identificar elementos antiguos a remover entre este heading y el próximo heading o tabla
-    to_remove = []
-    curr = target_h._p.getnext()
-    while curr is not None:
-        tag = curr.tag.split('}')[-1]
-        if tag == 'p':
-            p_obj = docx.text.paragraph.Paragraph(curr, doc)
-            if p_obj.style.name.startswith('Heading'):
-                break
-            # No remover si es un pie de figura que queremos conservar
-            if p_obj.text.strip().startswith('Figura '):
-                break
-            to_remove.append(curr)
-        elif tag == 'tbl':
-            break
-        curr = curr.getnext()
 
-    # Insertar nuevos párrafos en orden
-    cursor = target_h._p
-    for style, txt in new_items:
-        new_elm = doc._body._element.makeelement('{http://schemas.openxmlformats.org/wordprocessingml/2006/main}p')
-        cursor.addnext(new_elm)
-        p = docx.text.paragraph.Paragraph(new_elm, doc)
-        p.style = style
-        p.text = txt
-        cursor = new_elm
+def portada(doc):
+    cambiar_texto_que_contiene(doc, "On-Premise", "On-Premise (Proxmox VE sobre KVM) + Cloud (Google Cloud Platform)")
+    cambiar_texto_que_contiene(doc, "Preparado por:", "Preparado por: Abel Guevara")
+    cambiar_texto_que_contiene(doc, "Organización:", "Organización: Co-Logistic S.A.C.  |  Año: 2026")
 
-    # Remover viejos
-    for elm in to_remove:
-        elm.getparent().remove(elm)
-
-def update_diagram_box(tbl, diagram_text):
-    """Actualiza la caja de diagrama 1x1 preservando bordes y asignando estilo Normal."""
-    cell = tbl.rows[0].cells[0]
-    cell.text = diagram_text.strip()
-    if cell.paragraphs:
-        cell.paragraphs[0].style = 'Normal'
 
 def main():
-    print("Cargando plantilla S1_E1...")
-    doc = docx.Document(TEMPLATE_PATH)
+    doc = docx.Document(str(PLANTILLA))
+    portada(doc)
+    T = list(doc.tables)          # se fijan al inicio: al reemplazar una tabla por una figura, los índices de doc.tables se corren
 
-    # 1. Portada y Metadatos
-    print("Actualizando portada y metadatos...")
-    for p in doc.paragraphs[:12]:
-        txt = p.text.strip()
-        if "On-Premise (VMware ESXi) + AWS" in txt:
-            p.text = "On-Premise (Proxmox VE KVM / VMware ESXi) + Cloud (Google Cloud Platform / AWS)"
-        elif "Preparado por:" in txt:
-            p.text = "Preparado por: Abel Guevara Huillca"
-        elif "Docente / curso:" in txt:
-            p.text = "Docente / curso: Proyecto Integrador · Seguridad de la Información / Habilidades Directivas"
-        elif "2026" in txt:
-            p.text = "Organización: Co-Logistic S.A.C.  |  Juliaca, Perú  |  Año: 2026"
+    # ── 1. Resumen ejecutivo ────────────────────────────────────────────────────────────────────────────────────
+    reemplazar_seccion(doc, "1. Resumen ejecutivo del diseño de red", [
+        (N, "Este informe presenta el diseño de la red de Co-Logistic S.A.C., una empresa de logística con un sistema de gestión de almacenes (WMS) como "
+            "servicio central. El diseño reemplaza una red plana por una red segmentada en capas, con un firewall en alta disponibilidad que es el único "
+            "punto de paso entre segmentos, un túnel cifrado hacia Google Cloud para los respaldos fuera de sitio y una capa de detección de intrusiones. "
+            "Todo el diseño vive como datos en un repositorio (cologistic-nettop-datos); de ahí se generan las configuraciones, las figuras y las tablas "
+            "de este documento, de modo que lo dibujado, lo documentado y lo que se configurará en el Semestre 2 no pueden diferir."),
+        (N, "Dimensiones del diseño:"),
+        (L, f"Topología: tres capas. Núcleo de dos switches Cisco C9300L ({SW['SW1-CORE1']['ip']} y {SW['SW2-CORE2']['ip']}), distribución de dos C9200L, un switch de acceso "
+            "y dos switches Top-of-Rack (C1000) que reciben a los cinco servidores. Doce port-channels LACP de dos cables cada uno unen los siete switches. "
+            "El núcleo trabaja solo en capa 2: todo el enrutamiento entre VLAN lo hace pfSense (decisión de diseño D01)."),
+        (L, "Perímetro: dos firewalls pfSense CE 2.8.1 en hardware dedicado (FW-MAIN y FW-BACKUP), en alta disponibilidad activo-pasivo con CARP, "
+            "sincronización de estados (pfsync) y de configuración por la VLAN 100. Cada VLAN tiene una IP virtual compartida (.1) como puerta de enlace."),
+        (L, f"Segmentación: {N_VLAN} VLAN de servicio, cuatro VLAN de tránsito hacia los proveedores de Internet (901 a 904) y la VLAN 999 como nativa de los troncales, "
+            f"agrupadas en {len(ZONAS_INTERNAS)} zonas internas y 4 externas (Internet y tres redes de la nube). El firewall aplica {REGLAS['total']} reglas "
+            f"({REGLAS['pass']} de paso y {REGLAS['block']} de bloqueo explícito) además de la denegación por defecto."),
+        (L, f"Conectividad híbrida: túnel WireGuard (UDP 51820) entre los dos pfSense y una VM de borde en la VPC de Google Cloud ({NUBE['vpc']['rango']}, región {NUBE['region']}). "
+            "Lo inicia el centro de datos, por lo que no se abre ningún puerto de entrada tras el NAT."),
+        (L, "Detección: IDS/IPS en los firewalls, SIEM Wazuh (SIEM01) que recibe los eventos de pfSense, switches y servidores, y un servidor señuelo (HONEY01) en una VLAN propia."),
+        (L, "Trazabilidad: cada elemento de las figuras sale del mismo modelo que genera las tablas, de modo que la matriz de componentes cubre el 100 % de lo dibujado."),
+    ])
+    poner_figura(doc, T[0], "enlace.png")
 
-    # 2. Resumen Ejecutivo
-    print("Redactando Sección 1: Resumen ejecutivo...")
-    sec1_content = [
-        ("Normal", "El presente informe técnico formula el diseño integral y formal de la arquitectura de red y seguridad perimetral para Co-Logistic S.A.C., un operador logístico 3PL especializado en almacenamiento y distribución en la región sur del Perú, cuya sede central y centro de distribución opera en Juliaca, Departamento de Puno. El proyecto responde a la necesidad crítica de resolver la obsolescencia de una infraestructura previa plana y vulnerable, carente de segmentación y con múltiples puntos únicos de fallo (SPOF), alineando las tecnologías de conectividad y control con los lineamientos de la norma internacional ISO/IEC 27001:2022."),
-        ("Normal", "Principales dimensiones del diseño desarrollado:"),
-        ("List Paragraph", "Organización y escenario: Co-Logistic S.A.C., centro de distribución de 12,000 m², con una dotación de 45 usuarios administrativos/operativos y un parque de más de 60 terminales móviles de radiofrecuencia (pistolas RF Zebra), balanzas conectadas y tabletas de picking en almacén."),
-        ("List Paragraph", "Problema abordado: Red corporativa no segmentada, concurrencia desordenada de tráfico administrativo con datos de misión crítica (WMS y PostgreSQL) y videovigilancia de alto ancho de banda, exposición de servicios sin DMZ, ausencia de cifrado intersitio y alta vulnerabilidad frente a movimientos laterales de código malicioso."),
-        ("List Paragraph", "Topología de infraestructura propuesta: Arquitectura jerárquica carrier-grade de 10 Gbps con switches Cisco Catalyst (Core SW1/SW2 en VSS/LACP, Distribución SW3/SW4, Acceso SW5 y Top-of-Rack SW6/SW7 en centro de datos). El perímetro y ruteo inter-VLAN se encomienda a un par de appliances pfSense Community Edition en cluster de alta disponibilidad activo/pasivo mediante el protocolo CARP y sincronización pfsync en capa 2."),
-        ("List Paragraph", "Mecanismo de integración híbrida: Túnel VPN sitio a sitio basado en WireGuard (UDP 51820) sobre criptografía moderna de curvas elípticas (Curve25519 y ChaCha20-Poly1305), interconectando el centro de datos local (10.10.0.0/16) con la nube VPC en Google Cloud Platform (región southamerica-west1, Santiago de Chile, 10.20.0.0/24). Esta selección ofrece una latencia óptima (~38 ms) frente a nubes en Norteamérica (>110 ms), garantizando la viabilidad de la replicación de respaldos y contingencia operativa."),
-        ("List Paragraph", "Zonificación y segmentación de seguridad: Implementación de 18 redes de área local virtuales (VLANs IEEE 802.1Q) categorizadas en 12 zonas de seguridad independientes (Perímetro, DMZ, LAN Administrativa, Operaciones WMS, Servicios Core, Base de Datos, Inteligencia de Negocios, Monitoreo/SOC, Telefonía VoIP, CCTV, IoT/Control de Acceso, Respaldo/Storage y Honeypot)."),
-        ("List Paragraph", "Riesgos de red mitigados: Secuestro de sesiones, interceptación de tráfico no cifrado, movimiento lateral de ransomware entre estaciones ofimáticas y servidores de base de datos, ataques de denegación de servicio (DoS) y brechas por compromiso de terminales IoT o dispositivos de invitados."),
-        ("List Paragraph", "Resultados del diseño y hoja de ruta: Se entrega una arquitectura completamente documentada como Fuente Única de Verdad (SSOT) en código, validada mediante 18 pruebas automatizadas de coherencia topológica. Para el Semestre 2 (Entregable S2_E2) se proyecta el aprovisionamiento en hardware físico, pruebas de penetración, validación de conmutación por falla CARP en <3 segundos y afinamiento del motor IDS/IPS Suricata con Wazuh SIEM.")
-    ]
-    replace_section_content(doc, "1. Resumen ejecutivo del diseño de red", sec1_content)
+    # ── 2. Organización ─────────────────────────────────────────────────────────────────────────────────────────
+    reemplazar_seccion(doc, "2.1 Descripción general", [
+        (N, "Co-Logistic S.A.C. presta servicios de logística: recepción, custodia, preparación de pedidos y despacho. La operación depende del WMS, una aplicación web "
+            "con su API y una base de datos PostgreSQL, que usan tanto las oficinas como los terminales de mano y vehiculares del almacén. Por eso la red debe ser "
+            "continua, segmentada y fácil de reconstruir."),
+        (N, "El diseño dimensiona la red para 417 dispositivos de usuario y de operación, repartidos así: 70 PC y 10 laptops, 13 impresoras (5 de oficina y 8 de etiquetas), "
+            "60 terminales de mano y 12 vehiculares, 60 teléfonos IP, 48 cámaras IP, 12 lectores de acceso y 20 sensores, 12 puntos de acceso y hasta 100 invitados. "
+            "Todos tienen un rango DHCP reservado en su subred."),
+        (L, "Servicios de TI: 27 máquinas virtuales (22 Linux y 5 Windows) en cinco servidores Proxmox: directorio activo, RADIUS, WMS, bases de datos, respaldo, "
+            "SIEM, monitoreo, telefonía, correo, control de acceso y videovigilancia."),
+        (L, "Infraestructura local y nube: el procesamiento está en el centro de datos local. La nube de Google aloja únicamente la VM de borde del túnel y el bucket de respaldos "
+            "fuera de sitio, que sirve de base para la recuperación ante desastre."),
+        (L, "Conectividad a Internet: dos proveedores independientes, cada uno con un enlace hacia cada pfSense (cuatro enlaces en total). En el laboratorio un router Cisco C1111-4P "
+            "emula esos cuatro enlaces (VLAN 901 a 904) a partir de una sola salida; en producción cada proveedor llegaría directo a una tarjeta WAN de los firewalls."),
+    ])
+    reemplazar_seccion(doc, "2.2 Servicios y procesos críticos dependientes de la red", [
+        (N, "Cada proceso del negocio se asocia al servicio de TI que lo sostiene y a la criticidad de que la red esté disponible:"),
+    ])
+    llenar_tabla(T[1], [
+        ["Recepción, picking y despacho", "WMS: interfaz web y API (WMS01 activo, WMS02 en espera)", "Crítica"],
+        ["Control de stock y ubicaciones", "PostgreSQL con réplica en flujo (DB01 y DB02)", "Crítica"],
+        ["Identificación de personas y equipos", "Active Directory y DNS (DC1, DC2); RADIUS (AAA01, AAA02)", "Crítica"],
+        ["Intercambio con socios", "Proxy inverso con WAF (WAF01) y SFTP (SFTP01) en la DMZ", "Alta"],
+        ["Reportes e inteligencia de negocio", "Almacén de datos y tableros (DW01)", "Media"],
+        ["Seguridad patrimonial", "Videovigilancia (NVR01) y control de acceso (ACS01)", "Alta"],
+        ["Comunicación operativa", "Central telefónica (PBX01) y relé de correo (MAIL01)", "Media"],
+        ["Auditoría y monitoreo de seguridad", "SIEM Wazuh (SIEM01), Zabbix (MON01), escáner de vulnerabilidades (VULN01)", "Alta"],
+        ["Continuidad y recuperación", "Respaldo Bareos (BKP01) y bucket en Google Cloud", "Alta"],
+    ])
+    reemplazar_seccion(doc, "2.3 Partes interesadas relevantes a la red", [
+        (N, "Las partes interesadas se identifican según ISO/IEC 27001:2022 (cláusula 4.2) y lo que esperan de la red:"),
+        (L, "Clientes y socios logísticos: disponibilidad del inventario y un canal de intercambio de archivos (SFTP y portal) que no exponga el resto de la red."),
+        (L, "Personal de almacén y de oficina: acceso estable al WMS, impresión de etiquetas y telefonía, sin ver las bases de datos ni la gestión."),
+        (L, "Dirección: continuidad de la operación ante fallas o ransomware, y evidencia para auditorías."),
+        (L, "Equipo de TI y seguridad: administración solo desde la VLAN 70 y a través de un bastión, registros centralizados en el SIEM y detección temprana."),
+        (L, "Proveedores de Internet y de nube (Google Cloud): interfaces de entrega normalizadas, rangos que no se solapen con 10.10.0.0/16 y reglas de entrada mínimas."),
+        (L, "Invitados y visitantes: acceso a Internet sin alcanzar ninguna red interna."),
+    ])
 
-    # Diagrama 1.1: Topología ejecutiva
-    diag_1_1 = """[ FIGURA 1.1: ARQUITECTURA EJECUTIVA SIMPLIFICADA — CO-LOGISTIC S.A.C. ]
-+---------------------------------------------------------------------------------------------------+
-| INTERNET / ACCESO PÚBLICO                                                                         |
-| ISP 1: Telefónica (Fibra Óptica Dedicada)           ISP 2: Claro Telecom (Enlace de Respaldo)     |
-+------------------------------------+--------------------------------------------------------------+
-                                     |
-                        +------------v------------+
-                        |  Router Cisco C1111-4P  | (Frontera WAN · NAT · IP: 168.121.48.246)
-                        +------------+------------+
-                                     | (VLANs 901-904 /30)
-                 +-------------------+-------------------+
-                 |                                       |
-    +------------v------------+             +------------v------------+
-    | FW-CORE-01 (pfSense)    |<=== CARP ===>| FW-CORE-02 (pfSense)    | (Cluster Alta Disponibilidad)
-    | Activo (Master)         |  (VLAN 100) | Standby (Backup)        | VIPs Gateways: 10.10.x.1
-    +------------+------------+             +------------+------------+
-                 |                                       |
-                 +-------------------+-------------------+
-                                     | (Trunk 802.1Q / LACP)
-    +--------------------------------v------------------------------------+
-    | SWITCHES CORE & DISTRIBUCIÓN CISCO CATALYST (SW1-CORE1 / SW2-CORE2) |
-    +---+------------------------+-------------------+----------------+---+
-        |                        |                   |                |
-+-------v-------+        +-------v-------+   +-------v-------+ +------v------+
-| ZONA ACCESO   |        | ZONA WMS OPS  |   | ZONA DMZ      | | CENTRO DATOS|
-| VLAN 10 Admin |        | VLAN 20 WMS   |   | VLAN 80 DMZ   | | VLANs 30-35 |
-| VLAN 50 Voz   |        | VLAN 90 WiFi  |   | Proxy WAF01   | | DB, WMS App |
-| VLAN 60 Guest |        | Balanzas/PFRF |   | SFTP B2B      | | ZFS, Bareos |
-+---------------+        +---------------+   +---------------+ +-------------+
-                                     |
-    =================================v===================================
-    ENLACE HÍBRIDO: TÚNEL VPN WIREGUARD (UDP 51820 · ChaCha20-Poly1305)
-    Datacenter On-Premise (10.10.0.0/16) <=========> Cloud VPC GCP (10.20.0.0/24)
-    =====================================================================
-    GOOGLE CLOUD PLATFORM (southamerica-west1 Santiago de Chile)
-    ├── Subred NUBE-BORDE (10.20.0.0/28)    -> VM GCP-BORDE (IP Pública: 34.176.121.24)
-    ├── Subred NUBE-TUNEL (10.20.0.16/29)   -> Interfaz VPN wg0 (10.20.0.17 / 10.20.0.18)
-    └── Subred NUBE-PRIVADA (10.20.0.32/28) -> Almacenamiento Cloud Storage (Respaldos offsite)"""
-    update_diagram_box(doc.tables[0], diag_1_1)
+    # ── 3. Alcance ──────────────────────────────────────────────────────────────────────────────────────────────
+    reemplazar_seccion(doc, "3.1 Declaración de alcance", [
+        (N, "El alcance comprende el diseño de las capas 1 a 3 del centro de datos y su conexión a la nube: cableado y equipos de red, VLAN, subredes y direccionamiento IPv4 "
+            "dentro de 10.10.0.0/16, enrutamiento y filtrado en el cluster pfSense, el túnel WireGuard hacia Google Cloud y la planificación de la detección de intrusiones. "
+            "No incluye la implementación ni la puesta en marcha, que corresponden al Semestre 2."),
+    ])
+    reemplazar_seccion(doc, "3.2 Límites", [
+        (N, "Los límites se definen en tres dimensiones:"),
+        (L, "Físicos: un gabinete de 24U (R1) con el router, los siete switches y la sala de servidores contigua con cinco servidores Dell Precision en torre y los dos firewalls, también en torre."),
+        (L, "Tecnológicos: switches Cisco Catalyst C9300L, C9200L y C1000; router Cisco C1111-4P; firewalls pfSense CE 2.8.1; hipervisores Proxmox VE; "
+            "túnel WireGuard; VPC de Google Cloud con una VM de borde y un bucket."),
+        (L, "Organizacionales: la administración de red es del equipo de TI. Se accede únicamente desde la VLAN de gestión, a través del bastión de la VLAN 70."),
+    ])
+    reemplazar_seccion(doc, "3.3 Exclusiones", [
+        (N, "Quedan fuera, con su justificación:"),
+        (L, "Dispositivos personales: solo disponen de la red de invitados (VLAN 60), que únicamente sale a Internet."),
+        (L, "Redes de los proveedores de Internet y de Google Cloud: son responsabilidad de cada proveedor; el diseño solo define los puntos de entrega."),
+        (L, "El código de la aplicación WMS: el documento trata su aprovisionamiento, conectividad y aislamiento, no su desarrollo."),
+        (L, "Alta disponibilidad de las máquinas virtuales por almacenamiento compartido: no hay almacenamiento compartido; la redundancia es por servicio (decisión D03) y se describe en el entregable S1_E2."),
+    ])
 
-    # 3. Descripción de la Organización y Necesidades de Red
-    print("Redactando Sección 2: Organización y necesidades...")
-    sec2_1_content = [
-        ("Normal", "Co-Logistic S.A.C. es una empresa peruana dedicada al suministro de servicios de logística integral para terceros (Third-Party Logistics - 3PL), cubriendo servicios de recepción, custodia, preparación de pedidos (picking/packing) y despacho capilar en las regiones de Puno, Cusco, Arequipa y Moquegua. La sede operativa principal y centro de distribución se sitúa en el Parque Industrial de la ciudad de Juliaca."),
-        ("Normal", "La escala y dinámica de las operaciones determinan requerimientos técnicos precisos:"),
-        ("List Paragraph", "Usuarios y puestos de trabajo: La sede alberga 45 puestos corporativos (gerencia, finanzas, operaciones, aduanas, seguridad patrimonial y mesa de ayuda) y más de 60 terminales de captura móvil distribuidos en la nave logística de 12,000 m²."),
-        ("List Paragraph", "Servicios TI dependientes de la red: Sistema de Gestión de Almacenes (WMS basado en arquitectura de microservicios contenerizados), motor de base de datos relacional PostgreSQL en alta disponibilidad, ERP corporativo Odoo para facturación electrónica homologada con SUNAT, telefonía IP Asterisk para coordinación operativa, y sistema de videovigilancia con 32 cámaras IP de alta definición."),
-        ("List Paragraph", "Uso balanceado de infraestructura local y nube: El procesamiento operativo transaccional se consolida on-premise en el centro de datos local para garantizar latencias inferiores a 2 ms requeridas por las terminales de radiofrecuencia, mientras que los servicios de respaldo inmutable offsite y portal web corporativo de contingencia residen en la nube de Google Cloud Platform (región Santiago de Chile)."),
-        ("List Paragraph", "Demanda de ancho de banda y resiliencia: Enlaces simétricos redundantes con dos proveedores independientes (Telefónica y Claro) para mitigar cortes de fibra óptica pública, garantizando disponibilidad de 99.9% para la operación continua 24/7.")
-    ]
-    replace_section_content(doc, "2.1 Descripción general", sec2_1_content)
+    # ── 4. Objetivos ────────────────────────────────────────────────────────────────────────────────────────────
+    reemplazar_seccion(doc, "4. Objetivos del diseño de red", [
+        (N, "Objetivos medibles del diseño, con el indicador con que se verificarán en el Semestre 2:"),
+    ])
+    llenar_tabla(T[2], [
+        ["Segmentar la red por zonas de seguridad", "VLAN con subred, puerta de enlace y zona declaradas en el modelo", f"100 % ({N_VLAN} VLAN)", "Redes"],
+        ["Eliminar el punto único de falla del perímetro", "Tiempo de conmutación de CARP al apagar FW-MAIN", "Por medir en el Semestre 2", "Infraestructura"],
+        ["Cifrar el enlace con la nube", "Túnel WireGuard activo entre ambos pfSense y GCP-BORDE", "Túnel arriba y ping al otro extremo", "Redes"],
+        ["Aislar gestión, datos y respaldos de los usuarios", "Reglas de bloqueo explícito de usuarios hacia VLAN 70, 32 y 120", "Intentos bloqueados y registrados", "Ciberseguridad"],
+        ["Detectar intrusiones en las zonas críticas", "IDS/IPS sobre WAN, servidores, DMZ y señuelo; alertas en el SIEM", "Cada prueba genera una alerta", "Ciberseguridad"],
+    ])
 
-    # Tabla 2.2: Procesos Críticos
-    sec2_2_intro = [
-        ("Normal", "La operación logística demanda una estricta clasificación de los procesos de negocio en función de su impacto directo ante una degradación o interrupción de la red. A continuación se identifican los procesos críticos institucionales:")
-    ]
-    replace_section_content(doc, "2.2 Servicios y procesos críticos dependientes de la red", sec2_2_intro)
+    # ── 5. Topologías ───────────────────────────────────────────────────────────────────────────────────────────
+    reemplazar_seccion(doc, "5. Topologías de red (diseño)", [
+        (N, "El diseño sigue un modelo jerárquico de tres capas (núcleo, distribución y acceso), con la segmentación por zonas de la norma ISO/IEC 27002:2022 (control 8.22). "
+            "Las cuatro vistas siguientes se generan del mismo modelo: física, lógica, de zonas y de la conexión híbrida."),
+    ])
+    reemplazar_seccion(doc, "5.1 Topología general de infraestructura de red", [
+        (N, "La capa física une, de arriba abajo: la salida a Internet, el router Cisco C1111-4P (emulación del proveedor), los dos firewalls, el núcleo SW1-CORE1 y SW2-CORE2, "
+            "la distribución SW3-DIST1 y SW4-DIST2, y los switches SW5-ACCESO, SW6-TOR2 y SW7-TOR1. Cada firewall se conecta a un núcleo por el puerto 23. Todo cable entre "
+            "switches es un par de enlaces agrupados con LACP. Los cinco servidores tienen un cable a cada ToR y los unen en un bond active-backup, ya que no hay MLAG entre "
+            "los dos ToR. Los puertos se muestran en cada extremo de la figura."),
+    ])
+    poner_figura(doc, T[3], "fisica.png")
 
-    table_procesos_data = [
-        ["Recepción y Registro de Carga", "WMS Inbound API / Nginx Web", "Crítica"],
-        ["Control de Stock y Ubicaciones", "Base de Datos PostgreSQL 16 HA", "Crítica"],
-        ["Preparación de Pedidos (Picking)", "WMS Mobile API & Scanners RF", "Crítica"],
-        ["Despacho y Facturación Electrónica", "ERP Odoo & Interfaz Web SUNAT", "Alta"],
-        ["Autenticación y Control de Acceso", "FreeIPA Kerberos / FreeRADIUS 802.1X", "Crítica"],
-        ["Seguridad Patrimonial y Circuito Cerrado", "NVR Hikvision & Cámaras RTSP", "Alta"],
-        ["Telefonía y Comunicaciones Operativas", "PBX Asterisk SIP / Telefonía IP", "Media"],
-        ["Auditoría y Monitoreo de Seguridad", "Wazuh SIEM / Suricata IDS / Zabbix", "Alta"],
-        ["Respaldo Offsite y Protección de Datos", "Bareos & Google Cloud Storage", "Alta"]
-    ]
-    populate_table(doc.tables[1], table_procesos_data)
+    reemplazar_seccion(doc, "5.2 Topología lógica de red — VLAN y subredes", [
+        (N, f"El direccionamiento usa el bloque privado 10.10.0.0/16 (RFC 1918). Las {N_VLAN} VLAN de servicio llevan una subred, una IP virtual CARP como puerta de enlace (.1) y una IP propia de cada "
+            "firewall (.2 en FW-MAIN y .3 en FW-BACKUP). La VLAN 100 es solo para la sincronización de los firewalls y no tiene gateway. Las VLAN 901 a 904 (10.255.x.x /30) "
+            "son los enlaces de tránsito hacia el router de borde, y la 999 es la nativa de los troncales y de los puertos sin uso. La figura 5.2 muestra cada subred y qué tiene IP en ella."),
+    ])
+    llenar_tabla(T[4], datos.tabla_vlans())
+    poner_figura(doc, T[5], "red.png")
 
-    sec2_3_content = [
-        ("Normal", "Para asegurar la pertinencia del diseño de red y dar cumplimiento a los controles del SGSI bajo ISO/IEC 27001:2022 (cláusula 4.2), se han catalogado las partes interesadas relevantes y sus expectativas específicas de conectividad y ciberseguridad:"),
-        ("List Paragraph", "Clientes Corporativos (Retail y Consumo Masivo): Exigen disponibilidad permanente de inventarios (SLA 99.9%), confidencialidad estricta en datos de mercadería e interfaces B2B (SFTP/API) seguras y auditables."),
-        ("List Paragraph", "Operadores de Almacén y Cuadrillas: Demandan conectividad inalámbrica continua y de baja latencia en toda la nave de 12,000 m², con itinerancia (roaming) transparente para las pistolas RF Zebra sin cortes de sesión."),
-        ("List Paragraph", "Dirección General y Gerencia de Operaciones: Requieren protección frente a incidentes de ransomware que puedan paralizar los despachos, cumplimiento de regulaciones aduaneras y optimización de costos en enlaces y nube."),
-        ("List Paragraph", "Equipo de TI y Ciberseguridad: Necesitan gestión fuera de banda (OOB) aislada, trazabilidad total de conexiones inter-VLAN mediante logs centralizados en SIEM y herramientas de detección temprana (IDS y Honeypot)."),
-        ("List Paragraph", "Proveedores de Enlace (ISP) y Cloud (GCP/AWS): Demandan interfaces normalizadas de demarcación WAN (RFC 1918), protocolos de enrutamiento estables y parámetros de seguridad estandarizados en el túnel VPN."),
-        ("List Paragraph", "Organismos Reguladores (SUNAT, MTC, MinJus/DGPDP): Exigen trazabilidad fiscal inalterable, conservación de bitácoras por periodos normados y protección de datos personales conforme a la Ley N° 29733.")
-    ]
-    replace_section_content(doc, "2.3 Partes interesadas relevantes a la red", sec2_3_content)
+    reemplazar_seccion(doc, "5.3 Diseño de seguridad perimetral y zonas", [
+        (N, f"La red se divide en {len(ZONAS_INTERNAS)} zonas internas (usuarios, invitados, operación y dispositivos, servidores, datos, seguridad y monitoreo, respaldo, señuelo, DMZ, gestión, HA y WAN) "
+            "y 4 externas (Internet y las tres subredes de la VPC). Todo tráfico entre zonas pasa por pfSense, que filtra con estado y registra en el SIEM. "
+            "La única excepción justificada es la VLAN 40: las cámaras y su grabador comparten esa VLAN para no enrutar el video por el firewall (D02); se protege con IP Source Guard y reservas DHCP por MAC. "
+            "La figura 5.3 muestra la parte superior de la vista de red: la nube, el router, los enlaces WAN, el cluster de firewalls y las primeras zonas."),
+    ])
+    poner_figura(doc, T[6], mitad_superior("zonas_completa.png", "zonas.png"))
 
-    # 4. Alcance del Diseño de Red
-    print("Redactando Sección 3: Alcance del diseño de red...")
-    sec3_1_content = [
-        ("Normal", "El alcance del presente diseño abarca la arquitectura completa de conectividad de Capa 2 y Capa 3, direccionamiento IPv4 según RFC 1918, segmentación mediante 18 VLANs basadas en el estándar IEEE 802.1Q, cluster de seguridad perimetral pfSense en alta disponibilidad (CARP/pfsync), túnel de interconexión híbrida WireGuard hacia la nube de Google Cloud Platform (región Santiago de Chile), políticas de filtrado Zero-Trust y controles de detección de intrusiones (IDS/IPS y Honeypot) para la sede principal de Co-Logistic S.A.C. en Juliaca.")
-    ]
-    replace_section_content(doc, "3.1 Declaración de alcance", sec3_1_content)
+    reemplazar_seccion(doc, "5.4 Diseño de conectividad VPN híbrida", [
+        (N, "Para respaldar fuera de sitio y contar con una base de recuperación, el centro de datos se conecta a Google Cloud con un túnel WireGuard sitio a sitio. "
+            "Lo inician los pfSense, de modo que la nube no necesita alcanzar la red local y no se abre ningún puerto de entrada tras el NAT. "
+            "Los dos firewalls tienen un extremo del túnel (wg0), de modo que el enlace subsiste si cae uno."),
+    ])
+    llenar_tabla(T[7], [
+        ["Redes anunciadas", "10.10.0.0/16 (todo el centro de datos)", f"{NUBE['vpc']['rango']} (VPC-COLOGISTIC)"],
+        ["Dispositivo de borde", "FW-MAIN y FW-BACKUP (pfSense CE)", f"GCP-BORDE (Compute Engine e2-micro, {NUBE['region']})"],
+        ["Interfaz y dirección del túnel", f"wg0: {TUNEL['extremos']['FW-MAIN']['ip']} (MAIN) y {TUNEL['extremos']['FW-BACKUP']['ip']} (BACKUP)", f"wg0: {TUNEL['extremos']['GCP-BORDE']['ip']}"],
+        ["Subred del túnel", f"NUBE-TUNEL {NUBE['subredes']['NUBE-TUNEL']}", f"NUBE-TUNEL {NUBE['subredes']['NUBE-TUNEL']}"],
+        ["Protocolo y puerto", "WireGuard, UDP 51820", "WireGuard, UDP 51820"],
+        ["Quién inicia la conexión", "El centro de datos", "Solo responde"],
+        ["Cifrado", "ChaCha20-Poly1305", "ChaCha20-Poly1305"],
+        ["Intercambio de claves", "Curve25519 (ECDH)", "Curve25519 (ECDH)"],
+        ["Ruta hacia la otra red", "10.20.0.0/24 por el túnel", "10.10.0.0/16 por el túnel (ruta de la VPC)"],
+    ], encabezado=["Parámetro", "Extremo on-premise", "Extremo nube (Google Cloud)"])
+    poner_figura(doc, T[8], "vpn.png", ancho_cm=9.5)
 
-    sec3_2_content = [
-        ("Normal", "Los límites del proyecto se estructuran bajo tres dimensiones:"),
-        ("List Paragraph", "Límites Físicos: Centro de datos de la sede Juliaca (Gabinete Rack R1 de 24U, sala de servidores climatizada), infraestructura de cableado estructurado Categoría 6A y enlaces de fibra óptica OM4, switches de distribución en nave logística y equipos de borde."),
-        ("List Paragraph", "Límites Tecnológicos: Switches Cisco Catalyst gestionados (SW1 a SW7), appliances pfSense CE (FW-CORE-01 y FW-CORE-02), router perimetral Cisco C1111-4P, enlaces punto a punto WAN, túnel WireGuard VPN, VPC de Google Cloud Platform (VPC-COLOGISTIC), motor IDS/IPS Suricata, agentes Wazuh HIDS y señuelo Dionaea/Cowrie."),
-        ("List Paragraph", "Límites Organizacionales: La administración, mantenimiento y monitoreo corresponden de forma privativa a la Jefatura de Infraestructura y Ciberseguridad de Co-Logistic S.A.C. Los niveles de acceso se delimitan mediante Control de Acceso Basado en Roles (RBAC) y perfiles formalizados en el SGSI.")
-    ]
-    replace_section_content(doc, "3.2 Límites", sec3_2_content)
+    reemplazar_seccion(doc, "5.5 Diagrama de flujo de información planeado", [
+        (N, "Los flujos autorizados salen de las reglas de pfSense (vars/reglas.yml). La tabla recoge los principales, con su protocolo y puerto:"),
+    ])
+    llenar_tabla(T[9], [
+        ["Terminales del almacén (VLAN 20 y 90)", "TCP 443", "WMS (WMS01 y WMS02, VLAN 31)"],
+        ["WMS (VLAN 31)", "TCP 5432", "PostgreSQL (DB01 y DB02, VLAN 32)"],
+        ["PostgreSQL DB01", "TCP 5432 (replicación en flujo)", "DB02 y almacén de datos DW01 (VLAN 33)"],
+        ["Oficinas (VLAN 10)", "TCP 88, 389, 445, 636 y UDP 53", "Active Directory (DC1 y DC2, VLAN 30)"],
+        ["Internet (NAT en WAN1 y WAN2)", "TCP 443 y 22", "Proxy WAF01 y SFTP01 (VLAN 80, DMZ)"],
+        ["Proxy WAF01 (DMZ)", "TCP 443", "WMS (VLAN 31)"],
+        ["Bastión MGMT01 (VLAN 70)", "TCP 22, 443, 3389 y 8006", "Servidores, switches e hipervisores"],
+        ["Todas las VLAN", "TCP 1514, 1515 y UDP 514", "SIEM01 (Wazuh, VLAN 34)"],
+        ["BKP01 (VLAN 120)", "TCP 9102 y 9103", "Servidores y almacenamiento de respaldo"],
+        ["BKP01 (VLAN 120)", "TCP 443 por el túnel WireGuard", f"Bucket {NUBE['respaldo']['bucket_respaldos']}"],
+        ["Zabbix MON01 (VLAN 34)", "TCP 10050 y UDP 161 (SNMPv3)", "Servidores, switches e hipervisores"],
+    ])
 
-    sec3_3_content = [
-        ("Normal", "Se definen formalmente las siguientes exclusiones técnicas:"),
-        ("List Paragraph", "Dispositivos personales de trabajadores (BYOD): Quedan estrictamente segregados de los recursos corporativos y bases de datos; únicamente disponen de acceso a Internet mediante la red inalámbrica de invitados (VLAN 60) con aislamiento de clientes (Client Isolation) y ancho de banda restringido."),
-        ("List Paragraph", "Infraestructura WAN externa: Los tramos de fibra óptica y equipamiento pertenecientes a las redes metropolitanas de los proveedores ISP (Telefónica y Claro) se consideran cajas negras reguladas por sus respectivos Acuerdos de Nivel de Servicio (SLA)."),
-        ("List Paragraph", "Desarrollo aplicativo de software: La arquitectura interna de código del sistema WMS o del ERP Odoo queda fuera del alcance de este diseño de red, circunscribiéndose este documento a su aprovisionamiento, conectividad, aislamiento y entrega segura.")
-    ]
-    replace_section_content(doc, "3.3 Exclusiones", sec3_3_content)
+    reemplazar_seccion(doc, "5.6 Matriz de componentes de red", [
+        (N, "La matriz cubre todo lo que muestran las figuras: 17 equipos físicos y las dos piezas de la nube. Las máquinas virtuales están en la matriz del entregable S1_E2."),
+    ])
+    filas = [["Router-Cisco (C1111-4P)", "168.121.48.246 y VLAN 901 a 904", "Borde / WAN", "NAT y emulación de los enlaces de los proveedores", "Crítica"],
+             ["FW-MAIN (pfSense CE)", "10.10.70.2 · VIP .1 en cada VLAN", "Perímetro", "Firewall activo, enrutamiento entre VLAN, CARP y túnel WireGuard", "Crítica"],
+             ["FW-BACKUP (pfSense CE)", "10.10.70.3 · VIP .1 en cada VLAN", "Perímetro", "Firewall pasivo (CARP); toma el control si cae FW-MAIN", "Crítica"]]
+    for n, s in SW.items():
+        filas.append([f"{n} ({s['modelo']})", s["ip"], {"core": "Núcleo L2", "distribucion": "Distribución", "acceso": "Acceso", "tor": "ToR de servidores"}[s["rol"]],
+                      {"core": "Conmutación central; prioridad STP " + str(s["stp_prioridad"]), "distribucion": "Agregación hacia el núcleo y los ToR",
+                       "acceso": "Acceso de usuarios y punto de acceso", "tor": "Conecta los servidores Proxmox (un cable a cada ToR)"}[s["rol"]],
+                      "Crítica" if s["rol"] in ("core", "tor") else "Alta"])
+    filas += [["AP1-WIFI", "10.10.70.21", "Acceso Wi-Fi", "Cobertura inalámbrica (SSID en las VLAN 60 y 90)", "Media"],
+              ["HV-MAIN, HV1, HV2, HV3 y HV4 (Proxmox)", "10.10.70.41 y 10.10.70.44 a .47", "Hipervisores", "Alojan las 27 VM; bond hacia ambos ToR; forman el cluster PVE-COLOGISTIC", "Crítica"],
+              ["GCP-BORDE (Compute Engine)", f"{NUBE['recursos']['GCP-BORDE']['interfaces']['nic0']} y wg0 {TUNEL['extremos']['GCP-BORDE']['ip']}", "Nube · borde", "Extremo del túnel WireGuard; aloja la landing de contingencia", "Alta"],
+              ["GCP-BUCKET (Cloud Storage)", "Sin IP (API de Cloud Storage)", "Nube", "Copia fuera de sitio de respaldos de PostgreSQL y configuraciones", "Alta"]]
+    llenar_tabla(T[10], filas)
 
-    # 5. Objetivos del Diseño de Red
-    print("Redactando Sección 4: Objetivos del diseño...")
-    sec4_content = [
-        ("Normal", "De acuerdo con el enfoque por procesos de la norma ISO/IEC 27001:2022 y los requerimientos del perfil de egreso, se definen los siguientes objetivos técnicos medibles para el diseño de red:")
-    ]
-    replace_section_content(doc, "4. Objetivos del diseño de red", sec4_content)
+    # ── 6. Conectividad híbrida ─────────────────────────────────────────────────────────────────────────────────
+    reemplazar_seccion(doc, "6. Diseño de conectividad híbrida", [
+        (N, f"La VPC-COLOGISTIC ({NUBE['vpc']['rango']}) tiene tres subredes: NUBE-BORDE ({NUBE['subredes']['NUBE-BORDE']}, pública, con GCP-BORDE), NUBE-TUNEL ({NUBE['subredes']['NUBE-TUNEL']}, privada) y "
+            f"NUBE-PRIVADA ({NUBE['subredes']['NUBE-PRIVADA']}, privada, para contingencia). Las rutas son dos: 10.10.0.0/16 por el túnel y 0.0.0.0/0 por Internet. "
+            "El firewall de la VPC solo admite UDP 51820 desde la IP pública del centro de datos y SSH desde la VLAN 70. Cuentas de servicio separadas (respaldo, Terraform y registros) "
+            "tienen únicamente los permisos de su función."),
+        (N, "En los pfSense, la ruta hacia 10.20.0.0/24 apunta al túnel. Las pruebas planeadas para validar este enlace en el Semestre 2 son:"),
+    ])
+    llenar_tabla(T[11], [
+        ["Ping desde FW-MAIN y FW-BACKUP a GCP-BORDE (10.20.0.17)", "Responde por wg0"],
+        ["Ping desde un servidor de la VLAN 30 a GCP-BORDE por el túnel", "Permitido por la regla hacia la nube"],
+        ["BKP01 (VLAN 120) escribe en el bucket cologistic-respaldos-sa-west1 por HTTPS", "Permitido; la copia llega a Cloud Storage"],
+        ["SSH desde MGMT01 (VLAN 70) a GCP-BORDE", "Permitido (regla de la VPC desde 10.10.70.0/24)"],
+        ["SSH desde un equipo de la VLAN 10 o 60 a GCP-BORDE", "Denegado (no es VLAN 70)"],
+        ["UDP 51820 a GCP-BORDE desde una IP distinta a la del centro de datos", "Descartado por el firewall de la VPC"],
+        ["Intento de entrar a 10.20.0.4 desde Internet", "Sin respuesta (IP privada)"],
+        ["Apagar FW-MAIN con el túnel activo", "FW-BACKUP retoma el túnel; se registra el tiempo"],
+    ], encabezado=["Prueba de conectividad planeada", "Resultado esperado"])
 
-    table_objetivos_data = [
-        ["Segmentar el 100 % del tráfico por zonas", "VLANs y zonas de seguridad documentadas en SSOT", "100 % (18 VLANs)", "Abel Guevara (Redes)"],
-        ["Eliminar puntos únicos de fallo en perímetro", "Tiempo de conmutación por falla CARP", "< 3 segundos", "Abel Guevara (Infraestructura)"],
-        ["Establecer enlace híbrido seguro y de baja latencia", "Latencia RTT y pérdida de paquetes en túnel WireGuard", "< 40 ms / 0 % pérdidas", "Abel Guevara (Cloud & Red)"],
-        ["Aislar interfaces de gestión y bases de datos", "Conexiones no autorizadas a VLAN 70 y VLAN 32", "0 accesos denegados", "Abel Guevara (Ciberseguridad)"],
-        ["Implementar capacidades de detección preventiva", "Cobertura de inspección IDS/IPS y Honeypot perimetral", "100 % zonas críticas", "Abel Guevara (SOC / Seguridad)"]
-    ]
-    populate_table(doc.tables[2], table_objetivos_data)
+    # ── 7. Seguridad perimetral ─────────────────────────────────────────────────────────────────────────────────
+    reemplazar_seccion(doc, "7.1 Firewall", [
+        (N, "El perímetro lo forman dos pfSense CE 2.8.1 en equipos dedicados, en alta disponibilidad activo-pasivo con CARP. La IP virtual de cada VLAN actúa como puerta de enlace. "
+            "pfsync copia la tabla de conexiones y XMLRPC replica la configuración por la VLAN 100 (10.10.100.0/29), una red exclusiva de los dos firewalls. "
+            "FW-MAIN es el maestro (skew 0) y FW-BACKUP el respaldo (skew 100)."),
+        (N, f"La política por defecto es denegar todo lo que no se permite. Cada VLAN tiene reglas de paso con origen, destino y puerto concretos, y reglas de bloqueo explícito "
+            f"para los destinos sensibles, de modo que el intento quede registrado. En total son {REGLAS['total']} reglas ({REGLAS['pass']} de paso y {REGLAS['block']} de bloqueo). "
+            "Los destinos se expresan como alias (servicios, puertos y redes), así que cambiar una máquina de lugar no obliga a reescribir reglas."),
+    ])
+    reemplazar_seccion(doc, "7.2 DMZ", [
+        (N, "La DMZ es la VLAN 80 (10.10.80.0/24) y aloja dos servidores: el proxy inverso con WAF (WAF01, 10.10.80.10) y el SFTP para socios (SFTP01, 10.10.80.20). "
+            "Desde Internet solo se publican dos puertos en cada enlace WAN: 443 hacia WAF01 y 22 hacia SFTP01."),
+        (N, "Desde la DMZ solo se permite que WAF01 llegue al WMS por el puerto 443 y que ambos servidores usen los servicios comunes (DNS, SIEM, parches, certificados y respaldo). "
+            "Las reglas bloquean y registran todo intento hacia la base de datos y hacia la red de gestión."),
+    ])
+    reemplazar_seccion(doc, "7.3 Segmentación planeada", [
+        (N, "La matriz resume lo que permiten y deniegan las reglas por pares de zonas (las del archivo reglas.yml del rol pfsense_base). Cada fila se probará en el Semestre 2:"),
+    ])
+    llenar_tabla(T[12], [
+        ["Internet → DMZ (WAF01 y SFTP01)", "PERMITIDO solo TCP 443 y 22 por NAT"],
+        ["Internet → red interna", "DENEGADO (política por defecto)"],
+        ["DMZ → base de datos (VLAN 32)", "DENEGADO y registrado"],
+        ["DMZ → gestión (VLAN 70)", "DENEGADO y registrado"],
+        ["WAF01 (DMZ) → WMS (VLAN 31)", "PERMITIDO solo TCP 443"],
+        ["Terminales y oficinas (VLAN 10, 20, 90) → WMS", "PERMITIDO TCP 443"],
+        ["Terminales (VLAN 20 y 90) → base de datos (VLAN 32)", "DENEGADO (solo el WMS llega a PostgreSQL)"],
+        ["Usuarios → gestión (VLAN 70) y respaldos (VLAN 120)", "DENEGADO"],
+        ["Bastión MGMT01 (VLAN 70) → servidores, switches y cámaras", "PERMITIDO por SSH, HTTPS, RDP y 8006"],
+        ["Invitados (VLAN 60) → red interna", "DENEGADO; solo sale a Internet por TCP 80 y 443"],
+        ["Cámaras (VLAN 40) y dispositivos IoT (VLAN 110) → servidores, gestión y usuarios", "DENEGADO"],
+        ["Señuelo (VLAN 130) → red interna", "DENEGADO; solo puede enviar sus alertas al SIEM"],
+        ["Servidores y aplicaciones → señuelo (VLAN 130)", "PERMITIDO y registrado (cualquier acceso es una alerta)"],
+        ["BKP01 (VLAN 120) → nube", "PERMITIDO TCP 443 por el túnel"],
+    ])
 
-    # 6. Topologías de Red (Diseño)
-    print("Redactando Sección 5: Topologías de red...")
-    sec5_intro = [
-        ("Normal", "El diseño de red de Co-Logistic S.A.C. se fundamenta en un modelo jerárquico de tres capas (Núcleo, Distribución y Acceso) siguiendo las mejores prácticas de la arquitectura Enterprise Campus de Cisco, combinado con una segmentación estricta por zonas de seguridad según el principio Zero-Trust y la norma ISO/IEC 27002:2022 (control 8.22). A continuación se presentan las vistas especializadas del diseño.")
-    ]
-    replace_section_content(doc, "5. Topologías de red (diseño)", sec5_intro)
+    # ── 8. Detección ────────────────────────────────────────────────────────────────────────────────────────────
+    reemplazar_seccion(doc, "8. Diseño de detección — IDS/IPS y honeypot", [
+        (N, "La detección combina tres elementos y se valida en el Semestre 2:"),
+        (L, "IDS/IPS en los firewalls: el paquete IDS/IPS de pfSense inspecciona la WAN y las zonas de servidores, DMZ y señuelo. Se ubica ahí porque todo el tráfico entre zonas pasa por pfSense (D01). "
+            "Enviará sus alertas al SIEM. Queda por decidir si se usa Suricata o Snort; la elección no cambia la topología."),
+        (L, "Servidor señuelo (HONEY01, VLAN 130, 10.10.130.10): sin uso real. Expone SSH, SMB y HTTP (22, 445 y 80). Cualquier conexión hacia él es una alerta, y desde él no sale tráfico hacia la red interna. "
+            "Los servidores y aplicaciones pueden alcanzarlo con registro, para que un equipo comprometido que escanee la red se delate."),
+        (L, "SIEM (SIEM01, VLAN 34, 10.10.34.20): Wazuh recibe los agentes (TCP 1514 y 1515) y el syslog (UDP 514) de pfSense, switches e hipervisores. Correlaciona las alertas del IDS y del señuelo."),
+        (L, "Complementos: Zabbix (MON01) vigila disponibilidad por SNMPv3 y agentes; VULN01 (Greenbone) escanea vulnerabilidades en servidores, switches e hipervisores; Oxidized (ITSM01) guarda cada cambio de configuración de los switches."),
+        (L, "Validación en el Semestre 2: escaneo de puertos (Nmap) desde un equipo de la VLAN 10 hacia servidores, intento de conexión al señuelo y ataque web contra WAF01, y verificar que cada prueba produce una alerta en SIEM01."),
+    ])
 
-    sec5_1_content = [
-        ("Normal", "La topología física general comprende la acometida de doble enlace WAN hacia el router de frontera Cisco C1111-4P, el cual entrega conectividad mediante enlaces troncales dedicados a los firewalls perimetrales pfSense (FW-CORE-01 y FW-CORE-02). Estos operan en alta disponibilidad con el protocolo CARP, conmutando el tráfico hacia el switch core redundante (SW1-CORE1 y SW2-CORE2) interconectados mediante EtherChannel / LACP a 10 Gbps. Desde el núcleo se extienden enlaces hacia los switches de distribución (SW3-DIST1 y SW4-DIST2) y switches Top-of-Rack (SW6-TOR2 y SW7-TOR1) en el centro de datos local.")
-    ]
-    replace_section_content(doc, "5.1 Topología general de infraestructura de red", sec5_1_content)
+    # ── 9. Escalabilidad y disponibilidad ───────────────────────────────────────────────────────────────────────
+    reemplazar_seccion(doc, "9. Consideraciones de escalabilidad y disponibilidad", [
+        (N, "El diseño prevé crecimiento y fallas:"),
+        (L, "Direccionamiento: de los 10.10.0.0/16 se usan 18 subredes /23, /24 y /29; queda espacio para nuevas VLAN. Las subredes de usuarios y dispositivos tienen un rango DHCP reservado y "
+            "holgura sobre el número de equipos dimensionado."),
+        (L, "Capa 2: doce port-channels LACP de dos cables unen los switches y los servidores tienen un cable a cada ToR en un bond active-backup. Rapid-PVST con raíz fijada en SW2-CORE2 (prioridad 4096) "
+            "y SW1-CORE1 como respaldo (8192); distribución en 16384 y los demás en 32768, para que un switch de acceso nunca sea raíz."),
+        (L, "Perímetro: pares de firewalls con CARP y pfsync; dos proveedores de Internet con enlace de conmutación entre ambos en pfSense (el ISP2 toma el relevo cuando el ISP1 falla)."),
+        (L, "Nube: la VPC tiene subredes separadas para el borde, el túnel y la carga privada, lo que permite agregar recursos de contingencia sin tocar el túnel."),
+        (L, "Límite conocido: el cluster Proxmox no tiene almacenamiento compartido; las VM no se reinician solas en otro nodo. La redundancia está en los servicios, cada par en hipervisores distintos (D03)."),
+    ])
 
-    diag_5_1 = """[ FIGURA 5.1: TOPOLOGÍA GENERAL DE INFRAESTRUCTURA DE RED — CO-LOGISTIC S.A.C. ]
-                           +------------------------+
-                           |     INTERNET / WAN     |
-                           +-----------+------------+
-                                       |
-                   +-------------------+-------------------+
-                   | (Fibra Óptica Dedicada)               | (Enlace Respaldo)
-        +----------v-----------+               +-----------v----------+
-        | ISP1: Telefónica     |               | ISP2: Claro Telecom  |
-        +----------+-----------+               +-----------+----------+
-                   |                                       |
-                   +-------------------+-------------------+
-                                       |
-                         +-------------v--------------+
-                         | Router Cisco C1111-4P      | (NAT / Borde WAN)
-                         | Gi0/0/0: 168.121.48.246/26 |
-                         +------+--------------+------+
-                                |              |
-        (VLAN 901/903 /30)      |              |      (VLAN 902/904 /30)
-                 +--------------+              +--------------+
-                 |                                            |
-    +------------v------------+                  +------------v------------+
-    | FW-CORE-01 (pfSense)    |<================>| FW-CORE-02 (pfSense)    |
-    | Appliance Activo        |  VLAN 100 (Sync) | Appliance Standby       |
-    | 10.10.x.2 (Master CARP) |   10.10.100.0/29 | 10.10.x.3 (Backup CARP) |
-    +------------+------------+                  +------------+------------+
-                 |                                            |
-                 +---------------------+----------------------+
-                                       | (Trunk 802.1Q - VIPs: 10.10.x.1)
-                 +---------------------+----------------------+
-                 |                                            |
-    +------------v------------+                  +------------v------------+
-    | SW1-CORE1               |<================>| SW2-CORE2               |
-    | Cisco Catalyst 3850 10G |   LACP Trunk     | Cisco Catalyst 3850 10G |
-    | IP Gestión: 10.10.70.11 |   (PortChannel)  | IP Gestión: 10.10.70.12 |
-    +----+---------------+----+                  +----+---------------+----+
-         |               |                            |               |
-         |         +-----+----------------------------+-----+         |
-         |         |                                        |         |
-    +----v---------v----+                              +----v---------v----+
-    | SW3-DIST1         |                              | SW4-DIST2         |
-    | Cisco 2960X       |                              | Cisco 2960X       |
-    | Nave Logística    |                              | Oficinas Admin    |
-    | IP: 10.10.70.13   |                              | IP: 10.10.70.14   |
-    +----+---------+----+                              +----+---------+----+
-         |         |                                        |         |
-    +----v----+ +--v-------+                           +----v----+ +--v-------+
-    | AP-WIFI | | SW5-ACC  |                           | Telefon.| | Puestos  |
-    | Ind. 90 | | Balanzas |                           | VoIP 50 | | Admin 10 |
-    +---------+ +----------+                           +---------+ +----------+"""
-    update_diagram_box(doc.tables[3], diag_5_1)
+    # ── 10. Conclusiones ────────────────────────────────────────────────────────────────────────────────────────
+    reemplazar_seccion(doc, "10. Conclusiones del diseño y siguientes pasos", [
+        (N, "Conclusiones:"),
+        (L, f"Se diseñó una red jerárquica segmentada en {N_VLAN} VLAN y {len(ZONAS_INTERNAS)} zonas internas, con un único punto de enrutamiento y filtrado (pfSense en alta disponibilidad)."),
+        (L, "La conexión híbrida por WireGuard hacia Google Cloud permite respaldar fuera de sitio sin abrir puertos de entrada en el centro de datos."),
+        (L, "La detección (IDS/IPS, SIEM y señuelo) está ubicada donde pasa el tráfico entre zonas, y cada elemento tiene una prueba planeada."),
+        (L, "Todo el diseño está en un repositorio y se valida automáticamente; las figuras y tablas de este informe se generan de él."),
+        (N, "Siguientes pasos (Semestre 2): configurar los switches (Day-0 y Ansible), instalar Proxmox y formar el cluster, desplegar pfSense con CARP, levantar el túnel y ejecutar las matrices de pruebas de las secciones 6 y 7.3."),
+    ])
 
-    # 5.2 Topología Lógica: VLANs y Subredes
-    sec5_2_content = [
-        ("Normal", "La segmentación lógica adopta el bloque IPv4 privado 10.10.0.0/16 asignado institucionalmente a la sede Juliaca. Se han diseñado 18 VLANs organizadas por criticidad, tipo de servicio y vector de riesgo. Cada subred cuenta con una Puerta de Enlace Virtual redundante (Virtual IP CARP) alojada en los firewalls pfSense, asegurando tolerancia total a fallos físicos sin necesidad de reconfigurar los clientes:")
-    ]
-    replace_section_content(doc, "5.2 Topología lógica de red — VLAN y subredes", sec5_2_content)
+    # ── 11. Referencias ─────────────────────────────────────────────────────────────────────────────────────────
+    reemplazar_seccion(doc, "11. Referencias", [
+        (N, "[1] International Organization for Standardization, \"ISO/IEC 27001:2022 Information security, cybersecurity and privacy protection — Information security management systems — Requirements,\" Geneva, 2022."),
+        (N, "[2] International Organization for Standardization, \"ISO/IEC 27002:2022 Information security controls,\" Geneva, 2022."),
+        (N, "[3] Y. Rekhter et al., \"Address Allocation for Private Internets,\" RFC 1918, IETF, Feb. 1996."),
+        (N, "[4] J. A. Donenfeld, \"WireGuard: Next Generation Kernel Network Tunnel,\" in Proc. NDSS, San Diego, CA, USA, 2017."),
+        (N, "[5] Netgate, \"pfSense Documentation: High Availability,\" Netgate Docs. [Online]. Disponible: https://docs.netgate.com/pfsense/en/latest/highavailability/"),
+        (N, "[6] Cisco Systems, \"Catalyst 9300 Series Switches Configuration Guides,\" Cisco. [Online]. Disponible: https://www.cisco.com/"),
+        (N, "[7] Google Cloud, \"VPC network overview,\" Google Cloud Documentation. [Online]. Disponible: https://cloud.google.com/vpc/docs/overview"),
+        (N, "[8] Wazuh Inc., \"Wazuh Documentation,\" 2024. [Online]. Disponible: https://documentation.wazuh.com/"),
+    ])
 
-    table_vlans_data = [
-        ["10", "ADMINISTRACION", "10.10.10.0/24", "Estaciones de trabajo de gerencia, contabilidad y RRHH"],
-        ["20", "OPERACIONES_WMS", "10.10.20.0/23", "Terminales de almacén, pistolas RF Zebra, puestos de picking"],
-        ["30", "INFRAESTRUCTURA", "10.10.30.0/24", "Servicios core: FreeIPA, DNS/DHCP, NTP, Step-CA, apt-cacher"],
-        ["31", "APLICACIONES", "10.10.31.0/24", "Servidores de aplicación WMS Web Nginx, API REST y ERP Odoo"],
-        ["32", "BASE_DATOS", "10.10.32.0/24", "Cluster de base de datos transaccional PostgreSQL 16 HA"],
-        ["33", "DATA_WAREHOUSE", "10.10.33.0/24", "Servidor analítico PostgreSQL DW y plataforma Metabase BI"],
-        ["34", "MONITOREO_SEGURIDAD", "10.10.34.0/24", "Servidores SIEM Wazuh, Zabbix Server, OpenVAS e ITSM GLPI"],
-        ["35", "COMUNICACIONES", "10.10.35.0/24", "Central IP PBX Asterisk y relé de correo SMTP autenticado"],
-        ["40", "CCTV", "10.10.40.0/23", "Videovigilancia: 32 cámaras IP RTSP y grabador digital NVR (D02)"],
-        ["50", "VOZ_IP", "10.10.50.0/24", "Teléfonos IP físicos de escritorio en oficinas y almacén"],
-        ["60", "INVITADOS_WIFI", "10.10.60.0/24", "Acceso a Internet para visitantes (aislado 100 % de la LAN)"],
-        ["70", "GESTION_TI", "10.10.70.0/24", "Red de administración fuera de banda: Proxmox, switches, Guacamole"],
-        ["80", "DMZ", "10.10.80.0/24", "Servicios públicos: Proxy WAF Nginx inverso y servidor SFTP B2B"],
-        ["90", "WIFI_INDUSTRIAL", "10.10.90.0/23", "Access points industriales de alta densidad en nave logística"],
-        ["100", "HA_SYNC", "10.10.100.0/29", "Enlace directo punto a punto para sincronización CARP y pfsync"],
-        ["110", "IOT_CONTROL_ACCESO", "10.10.110.0/24", "Sensores de almacén, molinetes biométricos y control de puertas"],
-        ["120", "BACKUP_STORAGE", "10.10.120.0/24", "Servidor de respaldos Bareos Director y almacenamiento ZFS NAS"],
-        ["130", "HONEYPOT", "10.10.130.0/24", "Servidor señuelo trampa (Cowrie/Dionaea) para detección de intrusos"]
-    ]
-    populate_table(doc.tables[4], table_vlans_data)
+    SALIDA.parent.mkdir(exist_ok=True)
+    doc.save(str(SALIDA))
+    print(f"Guardado: {SALIDA}")
 
-    diag_5_2 = """[ FIGURA 5.2: TOPOLOGÍA LÓGICA DE RED — VLANs Y ENRUTAMIENTO pfSense ]
-+---------------------------------------------------------------------------------------------------+
-| GATEWAY CARP pfSense (VIPs: 10.10.x.1) — Filtrado Stateful e Inspección Suricata                 |
-+----+--------+--------+--------+--------+--------+--------+--------+--------+--------+--------+----+
-     |        |        |        |        |        |        |        |        |        |        |
-     | .10.1  | .20.1  | .30.1  | .31.1  | .32.1  | .34.1  | .70.1  | .80.1  | .120.1 | .130.1 |
-+----v---+ +--v-----+ +v-------+ +v-------+ +v-------+ +v-------+ +v-------+ +v-------+ +v-------+ +v-------+
-|VLAN 10 | |VLAN 20 | |VLAN 30 | |VLAN 31 | |VLAN 32 | |VLAN 34 | |VLAN 70 | |VLAN 80 | |VLAN 120| |VLAN 130|
-|ADMIN   | |OPS WMS | |CORE TI | |WMS APP | |DATA DB | |SOC MON | |GESTION | |DMZ     | |BACKUP  | |HONEYPOT|
-|/24     | |/23     | |/24     | |/24     | |/24     | |/24     | |/24     | |/24     | |/24     | |/24     |
-|45 PCs  | |60 PFRF | |FreeIPA | |Nginx   | |Postgres| |Wazuh   | |Proxmox | |WAF     | |Bareos  | |Cowrie  |
-|Finanzas| |Zebra   | |DNS/NTP | |Docker  | |Master  | |Zabbix  | |Switches| |SFTP    | |ZFS NAS | |Dionaea |
-+--------+ +--------+ +--------+ +--------+ +--------+ +--------+ +--------+ +--------+ +--------+ +--------+
-     |         |          |          |          ^          ^         ^          ^         ^          |
-     |         |          |          +----------+----------|---------|----------+         |          |
-     |         +----------|---------------------+          |         |                    |          |
-     |                    +--------------------------------+         |                    |          |
-     +---------------------------------------------------------------+                    |          |
-                                (Acceso exclusivo a través de Bastión Guacamole)          |          |
-     =====================================================================================+          |
-     AISLAMIENTO ESTRICTO: VLAN 130 (Honeypot) y VLAN 60 (Invitados) sin salida a la LAN <-----------+"""
-    update_diagram_box(doc.tables[5], diag_5_2)
-
-    # 5.3 Seguridad Perimetral y Zonas
-    sec5_3_content = [
-        ("Normal", "La arquitectura de seguridad perimetral segmenta la red institucional en 12 zonas funcionales con fronteras de confianza bien delimitadas. Todo el tráfico que atraviesa las fronteras entre zonas es sometido a tres niveles de control: inspección stateful en pfSense (Capa 3 y 4), análisis de firmas y anomalías con Suricata IDS/IPS (Capa 7) y reenvío de registros hacia el SIEM Wazuh.")
-    ]
-    replace_section_content(doc, "5.3 Diseño de seguridad perimetral y zonas", sec5_3_content)
-
-    diag_5_3 = """[ FIGURA 5.3: TOPOLOGÍA DE SEGURIDAD PERIMETRAL Y ZONAS DE CONFIANZA ]
-                                 [ INTERNET / WAN ]
-                                         |
-                                 +-------v-------+
-                                 | Cisco C1111   | (Frontera WAN)
-                                 +-------+-------+
-                                         |
-                         +---------------v---------------+
-                         |     FIREWALL pfSense HA       |
-                         |  (Stateful Inspection + CARP) |
-                         +---------------+---------------+
-                                         |
-                        +----------------+----------------+
-                        |                                 |
-              [ INSPECCIÓN INLINE ]             [ ENLACE HÍBRIDO ]
-              | Suricata IDS/IPS  |             | WireGuard VPN  |
-              +---------+---------+             +--------+-------+
-                        |                                |
-       +----------------+----------------+      +--------v--------+
-       |                |                |      | VPC GCP CHILE   |
-+------v------+  +------v------+  +------v----+ | 10.20.0.0/24    |
-| ZONA DMZ    |  | ZONA DATOS  |  | ZONA SOC  | | GCP-BORDE       |
-| VLAN 80     |  | VLAN 32 DB  |  | VLAN 34   | | Cloud Storage   |
-| WAF / SFTP  |  | Postgres HA |  | Wazuh/IDS | +-----------------+
-+-------------+  +-------------+  +-----------+
-       |                ^                ^
-       v                |                |
-+-------------+  +------+------+         |
-| ZONA LAN    |  | ZONA CORE   |         |
-| VLAN 10, 20 |  | VLAN 30, 31 |---------+
-| Admin / WMS |  | FreeIPA/App |  (Logs & Telemetría)
-+-------------+  +-------------+"""
-    update_diagram_box(doc.tables[6], diag_5_3)
-
-    # 5.4 Conectividad VPN Híbrida
-    sec5_4_content = [
-        ("Normal", "Para satisfacer las necesidades de respaldo inmutable fuera de sede y contingencia operativa ante desastres (DRP), se ha diseñado un túnel VPN sitio a sitio basado en WireGuard que conecta el clúster perimetral pfSense en Juliaca con la VPC de Google Cloud Platform en Santiago de Chile. WireGuard opera en el espacio de kernel de Linux, proporcionando mayor rendimiento y menor sobrecarga de encapsulación que IPsec clásico:")
-    ]
-    replace_section_content(doc, "5.4 Diseño de conectividad VPN híbrida", sec5_4_content)
-
-    table_vpn_data = [
-        ["Red anunciada", "10.10.0.0/16", "10.20.0.0/24"],
-        ["Dispositivo de borde", "Cluster pfSense HA (FW-CORE-01/02)", "Instancia Compute Engine (GCP-BORDE)"],
-        ["Dirección IP pública", "168.121.48.246 (Router Cisco NAT)", "34.176.121.24 (IP Externa GCP Chile)"],
-        ["Interfaz de túnel", "wg0 (10.20.0.18/29)", "wg0 (10.20.0.17/29)"],
-        ["Protocolo y Puerto", "UDP puerto 51820", "UDP puerto 51820"],
-        ["Criptografía simétrica", "ChaCha20-Poly1305 (256 bits)", "ChaCha20-Poly1305 (256 bits)"],
-        ["Intercambio de llaves", "Curva elíptica Curve25519 (ECDH)", "Curva elíptica Curve25519 (ECDH)"],
-        ["Función hash y auth", "BLAKE2s", "BLAKE2s"],
-        ["Enrutamiento de retorno", "Estático (Next-Hop: 10.20.0.17)", "VPC Route Table (10.10.0.0/16 -> 10.20.0.4)"]
-    ]
-    populate_table(doc.tables[7], table_vpn_data)
-
-    diag_5_4 = """[ FIGURA 5.4: TOPOLOGÍA DE CONECTIVIDAD VPN HÍBRIDA (WIREGUARD) ]
-DATACENTER LOCAL (JULIACA)                               GOOGLE CLOUD PLATFORM (SANTIAGO)
-Red Local: 10.10.0.0/16                                  VPC: VPC-COLOGISTIC (10.20.0.0/24)
-+-------------------------------+                       +-------------------------------+
-| FW-CORE-01 / FW-CORE-02       |                       | GCP-BORDE (Compute Engine)    |
-| pfSense HA Cluster            |                       | Debian 12 / WireGuard         |
-| IP Pública: 168.121.48.246    |                       | IP Pública: 34.176.121.24     |
-| Interfaz: wg0 (10.20.0.18/29) |                       | Interfaz: wg0 (10.20.0.17/29) |
-+---------------+---------------+                       +---------------+---------------+
-                |                                                       |
-                +=================== TÚNEL CIFRADO =====================+
-                        Protocolo: UDP 51820 · ChaCha20-Poly1305
-                        Intercambio: Curve25519 (ECDH) · Hash: BLAKE2s
-                        Latencia: ~38 ms RTT (Fibra Pacífico)
-                                        |
-+---------------------------------------v---------------------------------------+
-| FLUJOS OPERATIVOS A TRAVÉS DEL TÚNEL:                                         |
-| 1. BKP01 (10.10.120.11) -> Cloud Storage: Replicación de respaldos Bareos     |
-| 2. MGMT01 (10.10.70.5)  -> GCP-BORDE (10.20.0.4): Gestión administrativa SSH  |
-| 3. pfSense Monitoreo    -> GCP-BORDE: Verificación de estado keepalive ICMP   |
-+-------------------------------------------------------------------------------+"""
-    update_diagram_box(doc.tables[8], diag_5_4)
-
-    # 5.5 Flujo de Información
-    sec5_5_content = [
-        ("Normal", "El diagrama de flujo de información establece las vías de comunicación autorizadas, protocolos, puertos y controles criptográficos entre los diferentes componentes del sistema:")
-    ]
-    replace_section_content(doc, "5.5 Diagrama de flujo de información planeado", sec5_5_content)
-
-    table_flujos_data = [
-        ["Operador Almacén (VLAN 20)", "HTTPS · 443 / WSS · 8443", "WMS Frontend / API Docker (VLAN 31)"],
-        ["Servidor WMS (VLAN 31)", "TCP · 5432 (PostgreSQL SSL)", "Base de Datos DB01 (VLAN 32)"],
-        ["Estación Admin (VLAN 10)", "HTTPS · 8443 (TLS 1.3)", "Bastión Guacamole MGMT01 (VLAN 70)"],
-        ["Bastión MGMT01 (VLAN 70)", "SSH · 22 / HTTPS · 8006", "Hipervisores Proxmox y Switches (VLAN 70)"],
-        ["Cliente Externo B2B (Internet)", "HTTPS · 443 / SFTP · 22", "Proxy WAF01 / SFTP01 (VLAN 80 DMZ)"],
-        ["Proxy WAF01 (VLAN 80)", "HTTPS · 8443 (Inspeccionado)", "Servidor WMS API (VLAN 31)"],
-        ["Servidor Bareos (VLAN 120)", "TCP · 9101-9103 (Cifrado TLS)", "Agentes Bareos en VMs (Todas las VLANs)"],
-        ["Servidor Bareos (VLAN 120)", "HTTPS · 443 (Túnel WireGuard)", "GCP Cloud Storage (cologistic-respaldos)"],
-        ["Clientes LAN y VMs (Todas)", "UDP · 53 (DNS) / UDP · 123", "Servidor Core INFRA01 (VLAN 30)"],
-        ["Servidor SIEM (VLAN 34)", "UDP · 1514 (Wazuh) / UDP · 514", "Agentes en VMs y Syslog Switches"]
-    ]
-    populate_table(doc.tables[9], table_flujos_data)
-
-    # 5.6 Matriz de Componentes de Red
-    sec5_6_content = [
-        ("Normal", "La totalidad de los equipos físicos y lógicos de conectividad que componen la infraestructura se consolidan en la siguiente matriz auditable:")
-    ]
-    replace_section_content(doc, "5.6 Matriz de componentes de red", sec5_6_content)
-
-    table_componentes_data = [
-        ["Router-Cisco (C1111-4P)", "168.121.48.246 / 10.255.x.x", "Frontera WAN", "Enrutamiento perimetral, NAT público y terminación ISP", "Crítica"],
-        ["FW-CORE-01 (pfSense CE)", "10.10.x.2 (VIP: 10.10.x.1)", "Perímetro / Core", "Firewall stateful activo, router inter-VLAN y CARP master", "Crítica"],
-        ["FW-CORE-02 (pfSense CE)", "10.10.x.3 (VIP: 10.10.x.1)", "Perímetro / Core", "Firewall stateful standby, sincronización pfsync/CARP backup", "Crítica"],
-        ["SW1-CORE1 (Catalyst 3850)", "10.10.70.11", "Núcleo L2", "Conmutación central de alta velocidad, troncal 10G LACP", "Crítica"],
-        ["SW2-CORE2 (Catalyst 3850)", "10.10.70.12", "Núcleo L2", "Conmutación central de alta velocidad redundante (LACP)", "Crítica"],
-        ["SW3-DIST1 (Catalyst 2960X)", "10.10.70.13", "Distribución", "Agregación de enlaces de acceso en nave logística", "Alta"],
-        ["SW4-DIST2 (Catalyst 2960X)", "10.10.70.14", "Distribución", "Agregación de enlaces de acceso en oficinas administrativas", "Alta"],
-        ["SW5-ACCESO (Catalyst 2960)", "10.10.70.15", "Acceso", "Conexión de puestos administrativos y PCs locales", "Media"],
-        ["SW6-TOR2 (Catalyst 3650)", "10.10.70.17", "Datacenter ToR", "Switch Top-of-Rack redundante para servidores (Lado B)", "Crítica"],
-        ["SW7-TOR1 (Catalyst 3650)", "10.10.70.16", "Datacenter ToR", "Switch Top-of-Rack redundante para servidores (Lado A)", "Crítica"],
-        ["GCP-BORDE (Compute Engine)", "34.176.121.24 / 10.20.0.4", "Nube Borde", "Terminación de túnel WireGuard y landing web DRP", "Alta"],
-        ["AP-WIFI-01 / AP-WIFI-02", "10.10.70.21 / 10.10.70.22", "Acceso Wi-Fi", "Cobertura inalámbrica industrial en almacén (VLAN 90/60)", "Alta"]
-    ]
-    populate_table(doc.tables[10], table_componentes_data)
-
-    # 7. Diseño de Conectividad Híbrida
-    print("Redactando Sección 6: Conectividad híbrida...")
-    sec6_content = [
-        ("Normal", "La interconexión híbrida entre la sede Juliaca y Google Cloud Platform opera mediante el protocolo WireGuard sobre el puerto UDP 51820. Se ha establecido una configuración de Maximum Transmission Unit (MTU) de 1420 bytes en la interfaz wg0 para prevenir fragmentaciones de paquetes IP sobre el túnel WAN. El enrutamiento hacia la nube en el firewall pfSense se define como una ruta estática para el prefijo 10.20.0.0/24 a través de la IP de túnel del par remoto (10.20.0.17). En la nube, la tabla de rutas de la VPC direcciona el tráfico con destino al datacenter (10.10.0.0/16) utilizando la interfaz de la instancia GCP-BORDE (10.20.0.4) como salto siguiente (next-hop)."),
-        ("Normal", "Para validar el comportamiento del enlace híbrido en el Semestre 2, se formula la siguiente matriz de pruebas controladas:")
-    ]
-    replace_section_content(doc, "6. Diseño de conectividad híbrida", sec6_content)
-
-    table_pruebas_vpn_data = [
-        ["Ping ICMP bidireccional entre Datacenter (10.10.30.15) y GCP-BORDE (10.20.0.4)", "PERMITIDO (RTT < 40 ms a través de túnel wg0)"],
-        ["Tráfico Bareos Backup: BKP01 (10.10.120.11) a Cloud Storage Bucket (HTTPS)", "PERMITIDO (Tráfico cifrado mediante Service Account)"],
-        ["Acceso SSH administrativo: MGMT01 (10.10.70.5) a GCP-BORDE (10.20.0.4:22)", "PERMITIDO (Autenticación exclusiva por llave pública Ed25519)"],
-        ["Acceso SSH desde estación de Invitados (10.10.60.50) a GCP-BORDE (10.20.0.4)", "DENEGADO (Bloqueo inmediato por regla de firewall)"],
-        ["Acceso Web contingencia: Cliente externo a IP pública GCP (34.176.121.24:80/443)", "PERMITIDO (Servicio web HTTP/HTTPS Nginx activo)"],
-        ["Acceso directo desde Internet a IP privada de la VPC (10.20.0.4)", "DENEGADO (Dirección RFC 1918 no enrutable públicamente)"],
-        ["Tráfico originado en Honeypot (10.10.130.10) con destino a la nube VPC", "DENEGADO (Aislamiento absoluto de la zona trampa)"],
-        ["Sincronización NTP: Instancia Cloud sincroniza con INFRA01 (10.10.30.15:123)", "PERMITIDO (Mantenimiento de reloj unificado en todo el SGSI)"]
-    ]
-    populate_table(doc.tables[11], table_pruebas_vpn_data)
-
-    # 8. Diseño de Seguridad Perimetral
-    print("Redactando Sección 7: Seguridad perimetral...")
-    sec7_1_content = [
-        ("Normal", "El clúster de seguridad perimetral se basa en dos appliances pfSense Community Edition operando en alta disponibilidad en Capa 2 y 3 mediante Common Address Redundancy Protocol (CARP). Cada subred posee una IP virtual (VIP) que actúa como puerta de enlace predeterminada para los hosts. La sincronización de estados de conexión (pfsync) y de reglas de configuración (XMLRPC sync) se efectúa de manera aislada a través de la VLAN 100 (HA_SYNC) en una red dedicada /29."),
-        ("Normal", "La política predeterminada de seguridad es Zero-Trust: denegación explícita por defecto (Default Deny Ingress / Default Deny Egress). Toda comunicación entre VLANs o hacia el exterior requiere una regla permitida explícita basada en el principio de mínimo privilegio (PoLP), registrando todo evento en el SIEM.")
-    ]
-    replace_section_content(doc, "7.1 Firewall", sec7_1_content)
-
-    sec7_2_content = [
-        ("Normal", "La Zona Desmilitarizada (DMZ) se aloja en la VLAN 80 (10.10.80.0/24) y hospeda exclusivamente dos servicios: el servidor proxy inverso WAF Nginx (WAF01, 10.10.80.10) y el servidor de intercambio seguro de archivos B2B (SFTP01, 10.10.80.20)."),
-        ("Normal", "Regla de diseño inquebrantable de la DMZ: Ningún nodo situado en la DMZ tiene autorización para originar conexiones hacia la red interna de servidores (VLANs 30 a 35), bases de datos o red de gestión. Únicamente puede responder a peticiones provenientes del exterior o aceptar conexiones originadas desde servidores internos autorizados.")
-    ]
-    replace_section_content(doc, "7.2 DMZ", sec7_2_content)
-
-    sec7_3_content = [
-        ("Normal", "El comportamiento esperado de la segmentación inter-VLAN se formaliza en la siguiente matriz de reglas de tráfico que será validada en el Semestre 2:")
-    ]
-    replace_section_content(doc, "7.3 Segmentación planeada", sec7_3_content)
-
-    table_seg_data = [
-        ["Internet → DMZ (VLAN 80: WAF01)", "PERMITIDO (TCP 80, 443 tras inspección WAF e IDS)"],
-        ["Internet → Red LAN / Datacenter interno", "DENEGADO (Bloqueo absoluto por regla por defecto)"],
-        ["DMZ (VLAN 80) → Base de Datos (VLAN 32)", "DENEGADO (Acceso directo prohibido; solo vía API en VLAN 31)"],
-        ["DMZ (VLAN 80) → Servidores Apps (VLAN 31)", "PERMITIDO RESTRINGIDO (Solo reenvío proxy a puerto 8443)"],
-        ["Operaciones WMS (VLAN 20) → Apps WMS (VLAN 31)", "PERMITIDO (Acceso web WMS puerto 443 / API puerto 8443)"],
-        ["Operaciones WMS (VLAN 20) → Base de Datos (VLAN 32)", "DENEGADO (Aislamiento de capa de datos; acceso solo vía API)"],
-        ["Usuarios Admin (VLAN 10) → Gestión TI (VLAN 70)", "PERMITIDO RESTRINGIDO (Solo acceso web a Guacamole con 2FA)"],
-        ["Gestión TI (VLAN 70) → Cualquier VLAN", "PERMITIDO (Administración técnica SSH/HTTPS y monitoreo)"],
-        ["Invitados WiFi (VLAN 60) → Red Interna / DMZ", "DENEGADO (Aislamiento total; solo salida NAT a Internet)"],
-        ["Honeypot (VLAN 130) → Red Interna / Nube", "DENEGADO (Aislamiento total en celda trampa; cero tráfico saliente)"],
-        ["Servidores Core (VLAN 30) → Nube GCP (10.20.0.0/24)", "PERMITIDO (Tráfico cifrado VPN para respaldos y contingencia)"],
-        ["Telefonía VoIP (VLAN 50) → Base de Datos / Gestión", "DENEGADO (Voz segregada de datos; solo comunicación con PBX01)"]
-    ]
-    populate_table(doc.tables[12], table_seg_data)
-
-    # 9. Detección: IDS/IPS y Honeypot
-    print("Redactando Sección 8: Detección IDS/IPS...")
-    sec8_content = [
-        ("Normal", "La estrategia de detección preventiva se formula bajo tres tecnologías complementarias articuladas con el SGSI:"),
-        ("List Paragraph", "Sistema de Detección/Prevención de Intrusiones (IDS/IPS) Suricata: Integrado como servicio nativo en los firewalls pfSense. Opera en modo inline (bloqueo activo) en las interfaces WAN y DMZ, y en modo pasivo IDS sobre los troncales de servidores mediante puertos espejo (SPAN). Emplea el conjunto de firmas Emerging Threats (ET Open) con actualización diaria automatizada, orientado a la neutralización de ataques de inyección SQL, ejecución remota de comandos (RCE), escaneos de puertos y explotación de vulnerabilidades web."),
-        ("List Paragraph", "Servidor Señuelo Honeypot (HONEY01): Alojado en la VLAN 130 (10.10.130.10), una red trampa estrictamente confinada. Ejecuta Cowrie para emular servicios vulnerables de SSH y Telnet (capturando intentos de autenticación por fuerza bruta, diccionarios y comandos ingresados por intrusos) y Dionaea para la captura de malware a través de puertos SMB, HTTP y FTP."),
-        ("List Paragraph", "Sistema SIEM y Detección de Host (Wazuh HIDS): Desplegado en SIEM01 (VLAN 34, 10.10.34.20). Recopila eventos de seguridad de Suricata, logs de sistema de los switches Cisco vía Syslog, y telemetría de integridad de archivos (FIM) proveniente de los agentes Wazuh instalados en cada una de las 22 máquinas virtuales."),
-        ("List Paragraph", "Plan de validación para el Semestre 2: En la etapa de implementación se ejecutarán pruebas controladas de intrusión utilizando Nmap (escaneo de puertos SYN y detección de versiones), sqlmap contra el proxy WAF y ataques simulados de diccionario Hydra contra el Honeypot, verificando la generación automática de alertas y activación de reglas de bloqueo en menos de 10 segundos.")
-    ]
-    replace_section_content(doc, "8. Diseño de detección — IDS/IPS y honeypot", sec8_content)
-
-    # 10. Escalabilidad y Disponibilidad
-    print("Redactando Sección 9: Escalabilidad y disponibilidad...")
-    sec9_content = [
-        ("Normal", "El diseño de red incorpora previsiones estructurales de crecimiento y tolerancia a desastres:"),
-        ("List Paragraph", "Capacidad de Direccionamiento: El direccionamiento 10.10.0.0/16 ofrece una reserva de más del 70 % de direcciones libres en las subredes /24 y /23, permitiendo duplicar el número de terminales de radiofrecuencia en almacén (VLAN 20) y agregar nuevos microservicios en el centro de datos sin requerir renumeraciones."),
-        ("List Paragraph", "Redundancia Física y Enlaces LACP: La troncal entre los switches de distribución y el núcleo opera con agregación de enlaces 802.3ad (LACP) a 10 Gbps, proporcionando balanceo de carga y tolerancia ante el corte de fibra en cualquier hilo. El protocolo Rapid Per-VLAN Spanning Tree Plus (PVRST+) garantiza tiempos de convergencia de bucle inferiores a 1 segundo."),
-        ("List Paragraph", "Resiliencia Perimetral CARP: La conmutación de los firewalls pfSense ocurre de forma transparente en menos de 3 segundos ante una caída de hardware del nodo maestro, manteniendo activas las tablas de estados TCP mediante pfsync."),
-        ("List Paragraph", "Modularidad Híbrida: La VPC de Google Cloud se estructura con subredes modulares (/28 y /29), lo que permite incorporar zonas de computación adicionales o expandir el entorno DRP sin impactar la configuración del túnel VPN central.")
-    ]
-    replace_section_content(doc, "9. Consideraciones de escalabilidad y disponibilidad", sec9_content)
-
-    # 11. Conclusiones y Siguientes Pasos
-    print("Redactando Sección 10: Conclusiones...")
-    sec10_content = [
-        ("Normal", "Conclusiones del diseño de red formulado:"),
-        ("List Paragraph", "Se ha establecido una arquitectura de red carrier-grade que supera las deficiencias de la red plana previa, logrando una segmentación estricta en 18 VLANs y 12 zonas de seguridad alineadas a los controles de ISO/IEC 27001:2022."),
-        ("List Paragraph", "El diseño elimina puntos únicos de falla mediante la combinación de enrutamiento WAN multihoming en Cisco C1111, clúster perimetral pfSense en alta disponibilidad (CARP) y troncales redundantes LACP a 10 Gbps."),
-        ("List Paragraph", "La conectividad híbrida mediante WireGuard garantiza una interconexión costo-eficiente y de baja latencia (~38 ms) con Google Cloud Platform (Santiago de Chile), haciendo viable la política de respaldo inmutable offsite y contingencia DRP."),
-        ("List Paragraph", "Hitos completados en Semestre 1: Especificación formal SSOT en código YAML, validación topológica automatizada con 18 pruebas unitarias superadas, y despliegue exitoso verificado en la nube pública de GCP."),
-        ("List Paragraph", "Siguientes pasos para el Semestre 2 (Entregable S2_E2): Despliegue de plantillas de configuración en switches físicos Catalyst, configuración del par pfSense en hardware dedicado, ejecución de la matriz de pruebas de conectividad y segmentación, y afinamiento de reglas de detección en Suricata y Wazuh SIEM.")
-    ]
-    replace_section_content(doc, "10. Conclusiones del diseño y siguientes pasos", sec10_content)
-
-    # 12. Referencias
-    print("Redactando Sección 11: Referencias...")
-    sec11_content = [
-        ("Normal", "[1] International Organization for Standardization, \"ISO/IEC 27001:2022 Information security, cybersecurity and privacy protection — Information security management systems — Requirements,\" Geneva, Switzerland, Oct. 2022."),
-        ("Normal", "[2] International Organization for Standardization, \"ISO/IEC 27002:2022 Information security, cybersecurity and privacy protection — Information security controls,\" Geneva, Switzerland, Feb. 2022."),
-        ("Normal", "[3] Y. Rekhter, B. Moskowitz, D. Karrenberg, G. J. de Groot, and E. Lear, \"Address Allocation for Private Internets,\" RFC 1918, Internet Engineering Task Force (IETF), Feb. 1996."),
-        ("Normal", "[4] J. A. Donenfeld, \"WireGuard: Next Generation Kernel Network Tunnel,\" in Proceedings of the Network and Distributed System Security Symposium (NDSS), San Diego, CA, USA, Feb. 2017."),
-        ("Normal", "[5] Netgate, \"pfSense Documentation: High Availability with CARP and pfsync,\" Netgate Technical Library, Austin, TX, 2024. [Online]. Disponible: https://docs.netgate.com/pfsense/en/latest/highavailability/"),
-        ("Normal", "[6] Cisco Systems, \"Enterprise Campus 3.0 Architecture: High Availability and Security Design Guide,\" Cisco Press, San Jose, CA, 2023."),
-        ("Normal", "[7] Google Cloud, \"Virtual Private Cloud (VPC) Network Architecture and Best Practices,\" Google Cloud Architecture Center, Mountain View, CA, 2024. [Online]. Disponible: https://cloud.google.com/vpc/docs/"),
-        ("Normal", "[8] Open Information Security Foundation (OISF), \"Suricata User Guide: Inline Mode and Emerging Threats Ruleset,\" Release 7.0, 2024. [Online]. Disponible: https://docs.suricata.io/")
-    ]
-    replace_section_content(doc, "11. Referencias", sec11_content)
-
-    print(f"Guardando documento final en: {OUTPUT_PATH}")
-    doc.save(OUTPUT_PATH)
-    print("¡Entregable S1_E1 generado exitosamente!")
 
 if __name__ == "__main__":
     main()
