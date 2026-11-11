@@ -13,15 +13,15 @@ PRUEBAS_RED = [
     ("T04", "Administración de la nube desde la VLAN 70", "Túnel y regla de la VPC", "Desde MGMT01: ssh a GCP-BORDE (10.20.0.4)", "Conexión permitida", "Positiva · VPN"),
     ("T05", "La administración de la nube desde otra VLAN se bloquea", "Túnel arriba", "Desde un equipo de la VLAN 10: ssh a 10.20.0.4", "Conexión denegada", "Negativa · VPN"),
     ("T06", "El puerto del túnel solo acepta el origen del centro de datos", "Regla de la VPC ajustada (hallazgo H02)", "Desde otra IP pública: enviar UDP 51820 a la IP de GCP-BORDE", "Descartado por el firewall de la VPC", "Negativa · VPN"),
-    ("T07", "Internet llega al proxy WAF por HTTPS", "NAT 443 hacia WAF01 en WAN1 y WAN2", "Desde fuera: curl -k https://IP-WAN", "Responde el WAF (página del WMS)", "Positiva · DMZ"),
+    ("T07", "Internet bloqueado hacia el WMS privado", "WAF01 sin forwarding WMS y NAT 443 desactivado (Decisión D19)", "Desde fuera: curl -k https://IP-WAN o https://waf01.cologistic.net", "Conexión rechazada o HTTP 403 (WMS inaccesible desde Internet)", "Negativa · DMZ"),
     ("T08", "Internet llega al SFTP de socios", "NAT 22 hacia SFTP01", "Desde fuera: sftp con la cuenta de un socio de prueba", "Conexión permitida y enjaulada", "Positiva · DMZ"),
     ("T09", "Internet no llega a la red interna", "Política por defecto", "Desde fuera: nmap a una IP de servidor interno (por ejemplo 10.10.32.11)", "Sin respuesta", "Negativa · perímetro"),
-    ("T10", "La DMZ no alcanza la base de datos", "Regla de bloqueo DMZ → BD", "Desde WAF01: nc -zv 10.10.32.11 5432", "Conexión denegada y registro en pfSense", "Negativa · DMZ"),
+    ("T10", "La DMZ no alcanza la base de datos", "Regla de bloqueo DMZ → BD", "Desde WAF01: nc -zv 10.10.32.10 5432", "Conexión denegada y registro en pfSense", "Negativa · DMZ"),
     ("T11", "La DMZ no alcanza la gestión", "Regla de bloqueo DMZ → VLAN 70", "Desde WAF01: ssh a 10.10.70.5", "Conexión denegada y registro", "Negativa · DMZ"),
-    ("T12", "El WAF llega al WMS", "Regla WAF01 → WMS", "Desde WAF01: curl -k https://10.10.31.11", "Respuesta del WMS", "Positiva · DMZ"),
-    ("T13", "Los terminales del almacén llegan al WMS", "Regla VLAN 20 → WMS", "Desde un equipo de la VLAN 20: curl -k https://10.10.31.11", "Respuesta del WMS", "Positiva · segmentación"),
-    ("T14", "Los terminales no llegan a la base de datos", "Regla de bloqueo VLAN 20 → BD", "Desde la VLAN 20: nc -zv 10.10.32.11 5432", "Conexión denegada", "Negativa · segmentación"),
-    ("T15", "Solo el WMS llega a PostgreSQL", "Regla WMS → BD", "Desde WMS01: nc -zv 10.10.32.11 5432", "Conexión permitida", "Positiva · segmentación"),
+    ("T12", "La DMZ (WAF01) no alcanza el WMS privado", "Regla WAF01 → SRV_WMS en state: absent", "Desde WAF01: curl -k https://10.10.31.10", "Conexión denegada por firewall (aislamiento DMZ → Apps)", "Negativa · DMZ"),
+    ("T13", "Los terminales del almacén y Tailscale llegan a la VIP del WMS", "Regla VLAN 20 / Tailscale → VIP WMS (10.10.31.10)", "Desde la VLAN 20 o cliente Tailscale: curl -ks https://10.10.31.10/api/health/", "HTTP 200 JSON {\"status\": \"ok\", \"service\": \"wms-api\"}", "Positiva · segmentación"),
+    ("T14", "Los terminales no llegan a la base de datos", "Regla de bloqueo VLAN 20 → BD", "Desde la VLAN 20: nc -zv 10.10.32.10 5432", "Conexión denegada", "Negativa · segmentación"),
+    ("T15", "Solo el WMS llega a la VIP PostgreSQL HA (Patroni)", "Regla WMS → VIP BD (10.10.32.10)", "Desde WMS01/WMS02: nc -zv 10.10.32.10 5432", "Conexión permitida hacia el nodo primario Patroni activo", "Positiva · segmentación"),
     ("T16", "Los usuarios no llegan a la gestión", "Regla de bloqueo VLAN 10 → VLAN 70", "Desde la VLAN 10: ping y ssh a 10.10.70.5", "Sin respuesta y registro", "Negativa · segmentación"),
     ("T17", "Los usuarios no llegan a los respaldos", "Regla de bloqueo VLAN 10 → VLAN 120", "Desde la VLAN 10: nc -zv 10.10.120.11 9102", "Conexión denegada", "Negativa · segmentación"),
     ("T18", "Los invitados solo salen a Internet", "Regla VLAN 60", "Desde la VLAN 60: ping 10.10.10.10; curl https://ejemplo.com", "La red interna no responde; el sitio de Internet sí", "Negativa · segmentación"),
@@ -35,20 +35,24 @@ PRUEBAS_RED = [
     ("T26", "Los switches envían su registro", "Syslog configurado en los switches (hallazgo H08)", "Cambiar una descripción de puerto y buscarla en Wazuh", "El evento aparece", "Positiva · registros"),
     ("T27", "Zabbix mide los switches", "SNMPv3 y regla MON01 → VLAN 70", "En Zabbix: ver las métricas de SW1-CORE1", "Se muestran utilización y estado de los puertos", "Positiva · monitoreo"),
     ("T28", "La nube avisa de saturación", "Alerta de CPU de Cloud Monitoring (CPU mayor a 85 % por 5 minutos)", "Generar carga en GCP-BORDE (stress) durante 6 minutos", "Llega un correo al canal de notificación", "Positiva · monitoreo"),
+    ("T29", "Conmutación automática de PostgreSQL HA (Patroni + etcd)", "Patroni en DB01/DB02 + testigo etcd en INFRA01 + VIP 10.10.32.10", "Detener PostgreSQL/VM DB01 mientras se consulta db.cologistic.net:5432", "DB02 asume rol Primary automáticamente y conserva VIP 10.10.32.10", "Positiva · alta disponibilidad"),
+    ("T30", "Acceso remoto resiliente vía Tailscale Cloud (gcp-borde)", "Subnet Router 10.20.0.0/24 en gcp-borde y 10.10.0.0/16 en pfSense", "Simular caída de pfSense/ISP local y acceder por Tailscale a 10.20.0.34", "Conectividad SSH/HTTPS hacia gcp-wms-drp operativa sin routers locales", "Positiva · nube DRP"),
 ]
 
 # Registro de la prueba de recuperación (S2_E3): (servicio, RTO objetivo, RPO objetivo)
 RECUPERACION = [
-    ("PostgreSQL desde la réplica en DB02", "15 minutos", "Segundos"),
-    ("PostgreSQL desde el bucket de Google Cloud", "4 horas", "24 horas"),
+    ("PostgreSQL HA (Patroni DB01 -> DB02, VIP 10.10.32.10)", "15 minutos", "Segundos"),
+    ("PostgreSQL + WMS en nube privada DRP (gcp-wms-drp desde GCS)", "4 horas", "1 hora (dump horario)"),
+    ("DataWarehouse / Metabase HA (Patroni DW01 -> DW02, VIP 10.10.33.10)", "15 minutos", "Segundos"),
+    ("Archivos compartidos FS01 (contingencia Samba en BKP01 vía rsync)", "15 minutos", "5 minutos"),
     ("Una VM sin par (por ejemplo MON01) desde vzdump", "8 horas", "24 horas"),
 ]
 
 PASOS_RECUPERACION = [
-    "Tomar nota de la hora y del último respaldo (fecha del dump en el bucket).",
+    "Tomar nota de la hora y del último respaldo (fecha del dump horario en el bucket Cloud Storage / ZFS).",
     "Simular la pérdida del servicio: detener la VM o el servicio en producción (en la ventana acordada).",
-    "Restaurar: en el caso de la nube, descargar el dump del bucket con rclone, descifrarlo y cargarlo con pg_restore en una instancia limpia; en el caso de la réplica, promover DB02.",
-    "Verificar: conteo de filas de tablas clave del WMS y consulta de prueba desde WMS01.",
+    "Restaurar: en la nube, encender gcp-wms-drp y ejecutar activar_contingencia_drp.sh (descarga dump de GCS, obtiene secretos de Secret Manager y levanta imágenes de Artifact Registry); en sitio, validar promoción automática Patroni + VIP o habilitar recurso Samba de contingencia en BKP01.",
+    "Verificar: conteo de filas en DB, respuesta HTTP 200 en /api/health/ y consulta de prueba desde WMS.",
     "Medir el RTO (desde la falla hasta el servicio funcionando) y el RPO (hora del último dato recuperado frente a la hora de la falla).",
     "Guardar la evidencia: salida de los comandos y capturas, sin contraseñas.",
 ]

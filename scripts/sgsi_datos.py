@@ -26,22 +26,22 @@ PROPIETARIO = {"infra": "Responsable de Infraestructura", "apps": "Responsable d
                "datos": "Responsable de Datos", "red": "Responsable de Redes", "ti": "Jefatura de TI"}
 
 INFORMACION = [
-    ("Datos transaccionales del WMS (stock, ubicaciones, pedidos)", "datos", "DB01 y DB02 (HV4 y HV-MAIN)", 3, 3, 3),
+    ("Datos transaccionales del WMS (stock, ubicaciones, pedidos)", "datos", "DB01 y DB02 (Patroni VIP 10.10.32.10; HV4 y HV-MAIN)", 3, 3, 3),
     ("Identidades y credenciales (Active Directory, RADIUS, bóveda de secretos)", "seg", "DC1, DC2, AAA01, AAA02, MGMT01", 3, 3, 3),
     ("Copias de respaldo (locales y en la nube)", "datos", "BKP01 y bucket de Cloud Storage", 3, 2, 3),
     ("Registros y eventos de seguridad", "seg", "SIEM01 (Wazuh), MON01 (Zabbix)", 2, 3, 2),
     ("Configuración de la red y la infraestructura como código", "red", "Repositorio Git, Oxidized (ITSM01)", 3, 3, 2),
     ("Video de vigilancia", "seg", "NVR01", 2, 2, 2),
-    ("Archivos de usuarios y documentos de oficina", "apps", "FS01", 2, 2, 2),
-    ("Datos analíticos y reportes", "datos", "DW01", 2, 2, 1),
-    ("Secretos de operación (.env, claves de servicio, claves del túnel)", "seg", "Estaciones PAW01/02, Vaultwarden, repositorio", 3, 3, 2),
+    ("Archivos de usuarios y documentos de oficina", "apps", "FS01 (con réplica rsync cada 5 min en BKP01)", 2, 2, 2),
+    ("Datos analíticos y reportes (DataWarehouse + Metabase)", "datos", "DW01 y DW02 (Patroni VIP 10.10.33.10; HV4 y HV1)", 2, 2, 1),
+    ("Secretos de operación (.env, claves de servicio, claves del túnel)", "seg", "Estaciones PAW01/02, Vaultwarden, Secret Manager DRP", 3, 3, 2),
 ]
 
 # VM: (propietario, C, I, D)
 VM_CID = {
     "DC1": ("seg", 3, 3, 3), "DC2": ("seg", 3, 3, 3), "AAA01": ("seg", 3, 3, 2), "AAA02": ("seg", 3, 3, 2),
     "WMS01": ("apps", 2, 3, 3), "WMS02": ("apps", 2, 3, 3), "DB01": ("datos", 3, 3, 3), "DB02": ("datos", 3, 3, 3),
-    "DW01": ("datos", 2, 2, 1), "BKP01": ("datos", 3, 2, 3), "WAF01": ("seg", 2, 2, 2), "SFTP01": ("apps", 3, 2, 2),
+    "DW01": ("datos", 2, 2, 1), "DW02": ("datos", 2, 2, 1), "BKP01": ("datos", 3, 2, 3), "WAF01": ("seg", 2, 2, 2), "SFTP01": ("apps", 3, 2, 2),
     "SIEM01": ("seg", 2, 3, 2), "VULN01": ("seg", 2, 2, 1), "MON01": ("infra", 1, 2, 2), "ITSM01": ("infra", 2, 2, 1),
     "INFRA01": ("infra", 2, 3, 2), "FS01": ("apps", 2, 2, 2), "MGMT01": ("seg", 3, 3, 2), "PBX01": ("apps", 1, 2, 2),
     "MAIL01": ("apps", 2, 2, 1), "NVR01": ("seg", 2, 2, 2), "WLC01": ("red", 1, 2, 2), "ACS01": ("seg", 2, 3, 2),
@@ -79,9 +79,11 @@ def inventario():
     for nombre, d in sorted(datos.VMS.items(), key=lambda kv: (kv[1]["nodo"], kv[0])):
         dueno, c, i, dd = VM_CID[nombre]
         agregar(f"{nombre} ({d.get('rol') or '—'})", "VM Windows" if "Windows" in d["so"] else "VM Linux", dueno, f"{d['nodo']} · {d.get('ip', '—')}", c, i, dd)
-    agregar("VPC-COLOGISTIC y GCP-BORDE (Google Cloud)", "Servicio en la nube", "infra", "southamerica-west1", 2, 3, 2)
+    agregar("VPC-COLOGISTIC y GCP-BORDE (34.176.121.24; WireGuard + Tailscale)", "Servicio en la nube", "infra", "southamerica-west1", 2, 3, 2)
+    agregar("GCP-WMS-DRP (e2-medium privado en standby = $0 cómputo)", "Servicio en la nube", "apps", "southamerica-west1 (10.20.0.34)", 3, 3, 2)
     agregar("Bucket de respaldos (Cloud Storage)", "Servicio en la nube", "datos", "southamerica-west1", 3, 2, 3)
     agregar("Bucket del estado de Terraform", "Servicio en la nube", "infra", "southamerica-west1", 3, 3, 2)
+    agregar("Artifact Registry, Secret Manager y Cloud DNS privada", "Servicio en la nube", "infra", "southamerica-west1", 3, 3, 2)
     agregar("Cuentas de servicio de Google Cloud (respaldo, Terraform, registros)", "Identidad", "seg", "Google Cloud IAM", 3, 3, 2)
     return filas
 
@@ -141,7 +143,7 @@ SOA = [
     ("A.5.12", "Clasificación de la información", I, "Clasificación Confidencial, Interna o Pública en el inventario."),
     ("A.5.13", "Etiquetado de la información", PL, "Se etiquetarán los documentos con su clasificación."),
     ("A.5.14", "Transferencia de información", P, "SFTP enjaulado por socio y túnel cifrado a la nube; falta el acuerdo con socios."),
-    ("A.5.15", "Control de acceso", P, "146 reglas de pfSense por zona (rol pfsense_base); reglas escritas, pruebas de permitido y denegado pendientes."),
+    ("A.5.15", "Control de acceso", P, f"{datos.resumen_reglas()['total']} reglas de pfSense por zona (rol pfsense_base); reglas actualizadas para WMS 100 % privado, pruebas pendientes."),
     ("A.5.16", "Gestión de identidades", I, "Active Directory (DC1, DC2) con unidades organizativas; scripts de auditoría de AD."),
     ("A.5.17", "Información de autenticación", P, "Bóveda de secretos (Vaultwarden); pero hay una contraseña de administrador en archivos del repositorio (ver hallazgo H01)."),
     ("A.5.18", "Derechos de acceso", P, "Matriz de accesos por rol definida; falta revisarla periódicamente."),
@@ -170,7 +172,7 @@ SOA = [
     ("A.6.4", "Proceso disciplinario", NA, "Excluido: lo define la organización, no el proyecto."),
     ("A.6.5", "Responsabilidades después del cese o cambio de empleo", PL, "Baja de cuentas en Active Directory, Vaultwarden y bastión (política de accesos)."),
     ("A.6.6", "Acuerdos de confidencialidad o no divulgación", PL, "Declaración ética firmada por el equipo."),
-    ("A.6.7", "Trabajo remoto", P, "Acceso remoto de administración por Tailscale y VPN de pfSense; falta la política de trabajo remoto."),
+    ("A.6.7", "Trabajo remoto", P, "Tailscale Subnet Router en pfSense (10.10.0.0/16) y gcp-borde (10.20.0.0/24) más VPN WireGuard; falta la política formal de trabajo remoto."),
     ("A.6.8", "Notificación de eventos de seguridad de la información", PL, "Canal y formato del procedimiento de incidentes."),
     ("A.7.1", "Perímetros de seguridad física", PL, "Sala de servidores con acceso restringido; falta el gabinete para las torres."),
     ("A.7.2", "Entrada física", PL, "Control de acceso con lectores (ACS01); falta instalarlos."),
@@ -198,8 +200,8 @@ SOA = [
     ("A.8.10", "Eliminación de la información", PL, "Retención de 90 días en el bucket de respaldos."),
     ("A.8.11", "Enmascaramiento de datos", NA, "Excluido: no hay desarrollo con datos reales."),
     ("A.8.12", "Prevención de fuga de datos", P, "Segmentación y bloqueo de salida; sin herramienta de prevención de fuga."),
-    ("A.8.13", "Copia de seguridad de la información", P, "Bareos y vzdump; copia diaria cifrada de PostgreSQL al bucket; recuperación sin probar."),
-    ("A.8.14", "Redundancia de las instalaciones de procesamiento", P, "Doble ToR, 12 port-channels, pares de servicios en hipervisores distintos, cluster Proxmox; CARP pendiente."),
+    ("A.8.13", "Copia de seguridad de la información", P, "Bareos, vzdump, pg_dump horario (WMS, DW y Metabase) con rclone a GCS y rsync FS01 -> BKP01 cada 5 min; falta completar evidencia en todo el clúster."),
+    ("A.8.14", "Redundancia de las instalaciones de procesamiento", P, "Doble ToR, 12 port-channels, Patroni + etcd (DB01/02/INFRA01 y DW01/02) con VIP keepalived (.31.10/.32.10/.33.10), FS01->BKP01 y gcp-wms-drp; falta validar failover en vivo."),
     ("A.8.15", "Registro", P, "SIEM01 recibe syslog (UDP 514); pfSense y OpenCanary tienen configurado el envío. Falta configurarlo en los switches."),
     ("A.8.16", "Actividades de seguimiento", P, "Wazuh (SIEM01) y Zabbix (MON01) desplegados; faltan los paneles y las alertas."),
     ("A.8.17", "Sincronización de relojes", I, "Las reglas de pfSense permiten NTP hacia los controladores de dominio."),
@@ -211,7 +213,7 @@ SOA = [
     ("A.8.23", "Filtrado web", NA, "Excluido: salida web permitida por puerto a los usuarios; sin proxy."),
     ("A.8.24", "Uso de la criptografía", P, "SSH v2, WireGuard hacia la nube, TLS en los servicios; certificados autofirmados por reemplazar con step-ca."),
     ("A.8.25", "Ciclo de vida de desarrollo seguro", NA, "Excluido: el WMS lo desarrolla Ingeniería de Software."),
-    ("A.8.26", "Requisitos de seguridad de las aplicaciones", P, "El WMS se publica detrás de un WAF con reglas OWASP CRS."),
+    ("A.8.26", "Requisitos de seguridad de las aplicaciones", P, "WMS desacoplado (Django 5.2 DRF + React SPA + Nginx) aislado del Internet público (solo Intranet y Tailscale; WAF01 devuelve 403)."),
     ("A.8.27", "Arquitectura de sistemas seguros y principios de ingeniería", I, "Mínimo privilegio, defensa en profundidad y denegación por defecto (entregable S1_E1)."),
     ("A.8.28", "Codificación segura", NA, "Excluido: el proyecto no desarrolla aplicaciones."),
     ("A.8.29", "Pruebas de seguridad en el desarrollo y la aceptación", P, "Plan de pruebas del entregable S2_E2; sin ejecutar todavía."),

@@ -20,8 +20,8 @@ ROL_DE = {
     "INFRA01": "01-core/infra_stack", "FS01": "01-core/samba_fileserver", "WAF01": "03-perimetro/waf_reverse_proxy", "SFTP01": "03-perimetro/sftp_b2b",
     "PBX01": "03-perimetro/asterisk_pbx", "MAIL01": "03-perimetro/postfix_relay", "MGMT01": "02-seguridad/mgmt_stack", "ITSM01": "02-seguridad/itsm_stack",
     "MON01": "02-seguridad/zabbix_server", "SIEM01": "02-seguridad/wazuh_server", "VULN01": "02-seguridad/openvas", "HONEY01": "02-seguridad/honeypot",
-    "WLC01": "02-seguridad/omada_controller", "WMS01": "04-apps/wms", "WMS02": "04-apps/wms", "DB01": "04-apps/postgresql_ha", "DB02": "04-apps/postgresql_ha",
-    "DW01": "04-apps/datawarehouse_bi", "BKP01": "05-respaldo/bareos_zfs", "NVR01": "05-respaldo/zoneminder_nvr",
+    "WLC01": "02-seguridad/omada_controller", "WMS01": "04-apps/wms", "WMS02": "04-apps/wms", "DB01": "04-apps/postgresql_ha + quorum_etcd", "DB02": "04-apps/postgresql_ha + quorum_etcd",
+    "DW01": "04-apps/datawarehouse_bi", "DW02": "04-apps/datawarehouse_bi", "BKP01": "05-respaldo/bareos_zfs", "NVR01": "05-respaldo/zoneminder_nvr",
     "ACS01": "Windows desde ISO (etapa 30)", "PAW01": "Windows desde ISO (etapa 30)", "PAW02": "Windows desde ISO (etapa 30)",
 }
 
@@ -31,17 +31,17 @@ def contenido():
 
     # ── 1 ───────────────────────────────────────────────────────────────────────────────────────────────────────
     r.h1("Resumen ejecutivo")
-    r.p("Este informe documenta cómo se implementó el centro de datos híbrido diseñado en el entregable S1_E2: el cluster Proxmox de cinco servidores con sus 27 máquinas virtuales, la extensión en Google Cloud, "
-        "la gestión de identidades y accesos, el inventario final, la estrategia de respaldo y el monitoreo.")
+    r.p(f"Este informe documenta cómo se implementó el centro de datos híbrido diseñado en el entregable S1_E2: el cluster Proxmox de cinco servidores con sus {VM['n']} máquinas virtuales, la extensión en Google Cloud, "
+        "la gestión de identidades y accesos, el inventario final, la estrategia de respaldo/HA y el monitoreo.")
     r.p("Como en el entregable de red, se distinguen los estados «Implementado» (existe y se desplegó), «Automatizado» (el rol está escrito y falta comprobarlo en el equipo) y «Pendiente».")
     r.tabla(["Componente", "Estado", "Evidencia"], [
         ["Red de los nodos Proxmox (bond0, vmbr1 y VLAN 70) y cluster PVE-COLOGISTIC", "Implementado", "Etapa 20, roles proxmox_red y proxmox_cluster"],
         ["Plantillas cloud-init Debian y Ubuntu y plantilla Windows Server 2022", "Implementado", "Rol proxmox_templates (plantillas 9000, 9001 y 9002)"],
-        [f"{VM['n']} máquinas virtuales ({VM['linux']} Linux y {VM['windows']} Windows)", "Implementado", "Etapa 30 (Terraform) y etapa 40 (roles de servicios)"],
-        ["Servicios: directorio, RADIUS, WMS, bases de datos, respaldo, monitoreo, telefonía, correo, videovigilancia", "Implementado", "Etapa 40; auditorías auditar_base y auditar_core"],
-        ["VPC, VM de borde, firewall, ruta, buckets, cuentas de servicio y alerta en Google Cloud", "Implementado", "Estado de Terraform de la etapa 50 (19 recursos)"],
-        ["Respaldo diario cifrado de PostgreSQL y copia al bucket", "Automatizado", "Rol bareos_zfs (tarea programada a las 02:00)"],
-        ["Ejercicio de recuperación completo", "Pendiente", "Procedimiento y registro listos; sin ejecutar"],
+        [f"{VM['n']} máquinas virtuales ({VM['linux']} Linux y {VM['windows']} Windows)", "Automatizado", "Etapa 30 (Terraform con DW02 y DB02 2 vCPU/4 GB) y etapa 40"],
+        ["Servicios HA: Patroni + etcd (DB01/02/INFRA01 y DW01/02), keepalived VIPs, WMS CI/CD (Django DRF + React), FS01->BKP01", "Automatizado", "Etapa 40 (quorum_etcd, patroni_cluster, wms, bareos_zfs, samba_fileserver) + .github/workflows/deploy.yml"],
+        ["Nube GCP: VPC, GCP-BORDE (34.176.121.24 + Tailscale), GCP-WMS-DRP privado, Artifact Registry, Secret Manager, Cloud DNS y alerta", "Implementado / En revisión", "Estado de Terraform de etapa 50 (gcp-borde base aplicado; DRP/Artifact Registry/Secret Manager codificados en main.tf)"],
+        ["Respaldo horario pg_dump + rclone a GCS y sync FS01->BKP01 (5 min)", "Automatizado", "Roles bareos_zfs y samba_fileserver (cron horario BD + cron 5m rsync)"],
+        ["Ejercicio de recuperación completo", "Registrado (parcial) / Por ampliar", "S2_E3 XLSX registra pruebas DB02/GCS/vzdump; falta validar failover DW02/FS01 y gcp-wms-drp tras apply"],
         ["MFA y rotación de credenciales", "Pendiente", "Definidos en la política de accesos; falta habilitarlos y evidenciarlos"],
         ["Paneles y alertas de capacidad de los hosts", "Pendiente", "Zabbix desplegado; falta cargar los hosts y las alertas"],
     ])
@@ -90,29 +90,32 @@ def contenido():
         "la autenticación RADIUS de los switches y los recursos de Samba y de impresión.")
     r.tabla(["Nivel", "Servicios"], [
         ["Base", "Configuración común de Linux (hora, SSH, proxy de paquetes) y Docker"],
-        ["Núcleo", "Active Directory y DNS (DC1, DC2), FreeRADIUS (AAA01, AAA02), caché de paquetes y autoridad de certificados (INFRA01), archivos e impresión (FS01)"],
+        ["Núcleo", "Active Directory y DNS (DC1, DC2), FreeRADIUS (AAA01, AAA02), Step-CA + caché APT + testigo etcd (INFRA01), Samba FS01 (rsync a BKP01 cada 5 min)"],
         ["Seguridad", "SIEM Wazuh (SIEM01), Zabbix (MON01), escáner de vulnerabilidades (VULN01), señuelo (HONEY01), bastión y bóveda de secretos (MGMT01), GLPI y Oxidized (ITSM01), controladora Wi-Fi (WLC01)"],
-        ["Perímetro", "Proxy WAF (WAF01), SFTP para socios (SFTP01), telefonía (PBX01) y relé de correo (MAIL01)"],
-        ["Aplicaciones", "WMS en Docker (WMS01, WMS02), PostgreSQL con réplica en flujo (DB01, DB02), almacén de datos y tableros (DW01)"],
-        ["Respaldo", "Bareos con almacenamiento ZFS (BKP01) y videovigilancia con ZoneMinder (NVR01)"],
+        ["Perímetro", "WAF DMZ aislado del WMS privado (WAF01 devuelve 403), SFTP para socios (SFTP01), telefonía (PBX01) y relé de correo (MAIL01)"],
+        ["Aplicaciones", "WMS privado CI/CD en Docker (Django 5.2 DRF + React SPA + Nginx + keepalived VIP .31.10 en WMS01/02), Patroni + etcd VIP .32.10 (DB01/DB02) y DW/Metabase HA VIP .33.10 (DW01/DW02)"],
+        ["Respaldo", "Bareos con ZFS + cron horario pg_dump/rclone a GCS + contingencia Samba FS01 (BKP01) y videovigilancia con ZoneMinder (NVR01)"],
     ])
 
     # ── 4 ───────────────────────────────────────────────────────────────────────────────────────────────────────
     r.h1("Implementación en la nube: Google Cloud")
-    r.p("La etapa 50 de Terraform aplicó 19 recursos en el proyecto cologistic-cloud, región southamerica-west1. Es el equivalente en Google Cloud de la VPC, EC2, grupos de seguridad y reglas de red que pide la rúbrica de AWS.")
-    r.tabla(["Concepto del diseño (equivalente AWS)", "Recurso desplegado", "Configuración"], [
+    r.p("La etapa 50 de Terraform define la arquitectura híbrida DRP en el proyecto cologistic-cloud, región southamerica-west1 (base de VPC y gcp-borde desplegada; recursos DRP gcp-wms-drp, Artifact Registry, Secret Manager y Cloud DNS integrados en main.tf). Es el equivalente en Google Cloud de VPC, EC2, grupos de seguridad, ECR, Secrets Manager y Route 53:")
+    r.tabla(["Concepto del diseño (equivalente AWS)", "Recurso en Terraform (etapa 50)", "Configuración"], [
         ["VPC (VPC)", "vpc-cologistic", "10.20.0.0/24"],
-        ["Subredes (subredes)", "nube-borde, nube-tunel y nube-privada", "10.20.0.0/28, 10.20.0.16/29 y 10.20.0.32/28; la privada con acceso privado a las API de Google"],
-        ["Instancia (EC2)", "gcp-borde", "e2-micro, southamerica-west1-a, IP 10.20.0.4, reenvío de IP; WireGuard y Nginx instalados al arrancar"],
-        ["Dirección pública (Elastic IP)", "ip-gcp-borde", "Externa y estática, para el túnel"],
-        ["Tabla de rutas", "ruta-a-datacenter", "10.20.0.x hacia 10.10.0.0/16 por la VM de borde"],
-        ["Grupos de seguridad y ACL", "4 reglas de firewall", "WireGuard UDP 51820; todo el tráfico desde 10.10.0.0/16; SSH TCP 22 desde 10.10.70.0/24 y desde Google IAP; web TCP 80 y 443"],
-        ["Almacenamiento (S3)", "2 buckets", "Respaldos (versionado y eliminación a los 90 días) y estado de Terraform (versionado); acceso uniforme"],
-        ["IAM", "3 cuentas de servicio", "sa-respaldo (objectAdmin sobre el bucket de respaldos), sa-terraform y sa-logs"],
+        ["Subredes (subredes)", "nube-borde, nube-tunel y nube-privada", "10.20.0.0/28, 10.20.0.16/29 y 10.20.0.32/28; la privada con Private Google Access"],
+        ["Instancia de Borde (EC2 NAT/Bastion)", "gcp-borde", "e2-micro, southamerica-west1-a, IP 10.20.0.4, IP pública 34.176.121.24; WireGuard, Tailscale Subnet Router (10.20.0.0/24) y proxy TLS"],
+        ["Instancia Privada DRP (EC2 privada)", "gcp-wms-drp", "e2-medium en nube-privada (10.20.0.34), sin IP pública, desired_status = TERMINATED ($0 cómputo standby); Docker WMS + BI + Postgres"],
+        ["Registro de imágenes (ECR)", "southamerica-west1-docker.pkg.dev", "Artifact Registry wms-repo para pipeline CI/CD GitHub -> On-premise / DRP"],
+        ["Gestor de secretos (Secrets Manager)", "wms-drp-env", "Secret Manager cifrado para credenciales DRP de wms_user y Django"],
+        ["DNS Privado (Route 53 Private Zone)", "cologistic-privada", "Cloud DNS privada cologistic.net. apuntando wms/db/dw/bi a 10.20.0.34 en DRP"],
+        ["Dirección pública (Elastic IP)", "ip-gcp-borde", "Externa y estática (34.176.121.24), para el túnel WireGuard"],
+        ["Tabla de rutas y Firewall", "ruta-a-datacenter + 5 reglas", "WireGuard UDP 51820, tráfico túnel 10.10.0.0/16, SSH 22 (VLAN 70 e IAP), HTTP/HTTPS y tráfico DRP privado hacia 10.20.0.34"],
+        ["Almacenamiento (S3)", "2 buckets", "Respaldos horarios (versionado y eliminación a los 90 días) y estado de Terraform (versionado); acceso uniforme"],
+        ["IAM", "3 cuentas de servicio", "sa-respaldo (objectAdmin sobre respaldos), sa-terraform y sa-logs (roles/logging.logWriter)"],
         ["Monitoreo (CloudWatch)", "Política de alerta y canal de correo", "CPU de gcp-borde mayor al 85 % durante 5 minutos"],
     ])
-    r.fig("vpc.png", "Figura 4.1 — VPC de Google Cloud: subredes, VM de borde, túnel y bucket", ancho_cm=14)
-    r.p("El estado de Terraform registra 22 aplicaciones sobre el proyecto (serie 22), que es la evidencia de los despliegues. El bucket del estado, distinto del de respaldos y con versionado, está creado para pasar a un backend remoto.")
+    r.fig("vpc.png", "Figura 4.1 — VPC de Google Cloud: subredes, gcp-borde, gcp-wms-drp privado, túnel y bucket", ancho_cm=14)
+    r.p("El estado previo de Terraform registró la VPC, gcp-borde y buckets; al aplicar los cambios actuales de etapa 50 quedan activos gcp-wms-drp (apagado en standby), Tailscale Cloud, Artifact Registry, Secret Manager y Cloud DNS privada.")
 
     # ── 5 ───────────────────────────────────────────────────────────────────────────────────────────────────────
     r.h1("Gestión de identidades y accesos del centro de datos")
@@ -130,7 +133,8 @@ def contenido():
     r.p("El inventario es el mismo del SGSI (entregable S2_E1), con el sistema y el rol de Ansible que evidencia la configuración de cada máquina. Los nodos y los recursos de la nube tienen su evidencia en las etapas 20 y 50.")
     filas = [[n, d["nodo"], d["so"], ROL_DE[n]] for n, d in sorted(datos.VMS.items(), key=lambda kv: (kv[1]["nodo"], kv[0]))]
     filas += [[f"{n} (servidor Proxmox)", "Sala de servidores", "Proxmox VE", "etapa 20: proxmox_red y proxmox_cluster"] for n in HV]
-    filas += [["GCP-BORDE, VPC, firewall, ruta y alerta", "southamerica-west1", "Google Cloud", "etapa 50: main.tf y estado de Terraform"],
+    filas += [["GCP-BORDE y GCP-WMS-DRP, VPC, firewall, ruta y alerta", "southamerica-west1", "Google Cloud", "etapa 50: main.tf y estado de Terraform"],
+              ["Artifact Registry, Secret Manager, Cloud DNS privada", "southamerica-west1", "Servicios gestionados GCP", "etapa 50: main.tf"],
               ["Buckets de respaldos y de estado", "southamerica-west1", "Cloud Storage", "etapa 50: main.tf"],
               ["Cuentas de servicio", "Google Cloud IAM", "IAM", "etapa 50: main.tf"]]
     r.tabla(["Activo", "Ubicación", "Sistema", "Evidencia de configuración"], filas)
@@ -139,26 +143,30 @@ def contenido():
     r.h1("Continuidad: respaldo, restauración y recuperación probada")
     r.h2("Estrategia de respaldo implementada")
     r.bullets(
-        "Servidor BKP01: Bareos y almacenamiento ZFS con carpetas para PostgreSQL, configuraciones y Bareos; exporta el almacén por NFS a la gestión y a los servidores.",
-        "Un script instalado por Ansible hace el respaldo cifrado de PostgreSQL (DB01) cada día a las 02:00 y lo sincroniza con el bucket de Google Cloud mediante rclone.",
-        "Previsto en el diseño y por completar: respaldo de las máquinas virtuales con vzdump de Proxmox hacia el almacén de BKP01 por NFS.",
+        "Servidor BKP01: Bareos y almacenamiento ZFS con carpetas para PostgreSQL, configuraciones, Bareos y espejo rsync desde FS01 (cada 5 min, publicado como contingencia Samba).",
+        "Un script instalado por Ansible ejecuta respaldo horario (pg_dump) de las VIP Patroni (cologistic_wms, cologistic_dw y metabase_app) y lo sincroniza con el bucket Cloud Storage mediante rclone.",
+        "Previsto en el diseño y por completar en vivo: respaldo de las máquinas virtuales con vzdump de Proxmox hacia BKP01 por NFS.",
         "El bucket conserva versiones y elimina objetos a los 90 días; el estado de Terraform tiene su propio bucket.",
-        "Redundancia local: réplica de PostgreSQL en flujo (DB02) y los pares de servicio en nodos distintos (D03).")
+        "Redundancia local automática: Patroni + quórum etcd de 3 nodos (DB01, DB02, testigo INFRA01) y VIPs keepalived en WMS (.31.10), BD WMS (.32.10) y DW/BI (.33.10), con pares en hipervisores distintos (D03).")
     r.h2("Ejercicio de recuperación")
-    r.p("El ejercicio todavía no se ha ejecutado, así que los tiempos obtenidos están pendientes. Se ejecutará en una ventana acordada con este procedimiento, y sus resultados se anotarán en el registro del archivo Excel «Registro de prueba de recuperación».")
+    r.p("El archivo Excel «Registro de prueba de recuperación» conserva las mediciones preliminares ejecutadas sobre DB02/GCS/vzdump; tras incorporar Patroni, DW02, sync FS01->BKP01 y el nodo privado gcp-wms-drp, "
+        "la validación ampliada sigue este procedimiento:")
     r.tabla(["Paso", "Qué se hace"], [[str(i + 1), p] for i, p in enumerate(pd.PASOS_RECUPERACION)])
     r.tabla(["Servicio", "RTO objetivo", "RPO objetivo", "RTO obtenido", "RPO obtenido", "Evidencia"],
-            [[s, rto, rpo, "Pendiente", "Pendiente", "Por adjuntar"] for s, rto, rpo in pd.RECUPERACION])
+            [[s, rto, rpo, "Pendiente (nueva matriz HA/DRP)", "Pendiente (nueva matriz HA/DRP)", "Ver registro S2_E3 XLSX"] for s, rto, rpo in pd.RECUPERACION])
 
     # ── 8 ───────────────────────────────────────────────────────────────────────────────────────────────────────
     r.h1("Monitoreo y control operativo del centro de datos")
+    sobre = VM["vcpu"] / CAP["cores"]
+    pct_ram = 100 * VM["ram"] / CAP["ram"]
+    pct_disco = 100 * VM["disco"] / CAP["disco"]
     r.tabla(["Qué se monitorea", "Con qué", "Estado"], [
         ["CPU y memoria de las VM y los servicios", "Zabbix (MON01) con agentes y SNMP", "Desplegado; falta cargar los hosts"],
         ["Estado y capacidad de los nodos Proxmox", "Zabbix y la vista de recursos del cluster", "Pendiente: plantilla y alertas de capacidad"],
         ["Registros de seguridad", "Wazuh (SIEM01)", "Desplegado"],
         ["Instancia de la nube", "Cloud Monitoring: alerta de CPU mayor al 85 % durante 5 minutos, aviso por correo", "Implementado"],
         ["Cambios de configuración de los switches", "Oxidized (ITSM01)", "Desplegado"],
-        ["Capacidad", "Asignación actual: 1,53 : 1 de CPU, 41,5 % de RAM y 39 % de disco", "Calculado en el modelo"],
+        ["Capacidad", f"Asignación actual: {sobre:.2f} : 1 de CPU, {pct_ram:.1f} % de RAM y {pct_disco:.1f} % de disco", "Calculado en el modelo"],
     ])
     r.p("Pendiente: alertas de capacidad de los nodos (RAM libre menor al 20 %, disco mayor al 80 % y quórum del cluster) y una captura del panel como evidencia.")
 
@@ -168,14 +176,15 @@ def contenido():
         "El repositorio cologistic-infra contiene el diseño versionado, la especificación generada, las cinco etapas (red, hipervisor, máquinas, servicios y nube) y los makefiles; el historial de Git registra cada cambio.",
         "Cada etapa declara lo que requiere y entrega (docs/contratos.md) y el README indica el orden de despliegue; con un entorno limpio se reconstruye con make.",
         "La validación del diseño y las pruebas (make verificar) fallan si la especificación no coincide con el diseño.",
+        "CI/CD privado WMS: los repositorios wms-co-logistic-backend (Django 5.2 DRF) y wms-co-logistic-frontend (React 19 SPA) incluyen .github/workflows/deploy.yml hacia Artifact Registry GCP, VPN Tailscale y despliegue rolling sobre WMS01 -> WMS02.",
         "Secretos: .env está fuera de Git. La revisión halló una contraseña de administrador de Windows en archivos del repositorio y como valor por defecto en scripts; debe rotarse y retirarse antes de entregar el repositorio.")
 
     # ── 10 ──────────────────────────────────────────────────────────────────────────────────────────────────────
     r.h1("Conclusiones")
     r.bullets(
-        f"El centro de datos está implementado según el diseño: cluster de cinco nodos, {VM['n']} máquinas con sus servicios y la extensión en Google Cloud con 19 recursos desplegados.",
-        "Los cambios respecto al diseño están justificados; hay dos desviaciones de seguridad en la nube y una en Proxmox que tienen acción correctiva asignada.",
-        "Quedan pendientes el ejercicio de recuperación, el MFA con su evidencia y las alertas de capacidad. No se declaran como hechos mientras no haya evidencia.")
+        f"El centro de datos queda diseñado y automatizado al día: cluster de cinco nodos, {VM['n']} máquinas ({VM['linux']} Linux, {VM['windows']} Windows) con HA Patroni/etcd/keepalived y extensión en Google Cloud (gcp-borde + gcp-wms-drp privado).",
+        "Se consolidó la seguridad eliminando la exposición pública del WMS en DMZ/WAF01 (acceso privado Intranet/Tailscale), integrando Artifact Registry, Secret Manager y Cloud DNS para contingencia DRP y CI/CD.",
+        "Quedan pendientes la aplicación en vivo de los nuevos recursos de etapa 50 y roles HA de etapa 40, el MFA con su evidencia, las alertas de capacidad y las pruebas ampliadas de failover.")
 
     r.biblio(
         "[1] Proxmox Server Solutions GmbH, \"Proxmox VE Administration Guide.\" [Online]. Disponible: https://pve.proxmox.com/pve-docs/",

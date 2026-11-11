@@ -56,8 +56,9 @@ def main():
         (L, f"Segmentación: {N_VLAN} VLAN de servicio, cuatro VLAN de tránsito hacia los proveedores de Internet (901 a 904) y la VLAN 999 como nativa de los troncales, "
             f"agrupadas en {len(ZONAS_INTERNAS)} zonas internas y 4 externas (Internet y tres redes de la nube). El firewall aplica {REGLAS['total']} reglas "
             f"({REGLAS['pass']} de paso y {REGLAS['block']} de bloqueo explícito) además de la denegación por defecto."),
-        (L, f"Conectividad híbrida: túnel WireGuard (UDP 51820) entre los dos pfSense y una VM de borde en la VPC de Google Cloud ({NUBE['vpc']['rango']}, región {NUBE['region']}). "
-            "Lo inicia el centro de datos, por lo que no se abre ningún puerto de entrada tras el NAT."),
+        (L, f"Conectividad híbrida: túnel WireGuard (UDP 51820) entre los dos pfSense y una VM de borde (GCP-BORDE) en la VPC de Google Cloud ({NUBE['vpc']['rango']}, región {NUBE['region']}), "
+            "complementada con Tailscale Subnet Router (10.10.0.0/16 en pfSense y 10.20.0.0/24 en GCP-BORDE) para resiliencia de acceso y CI/CD. "
+            "El túnel WireGuard lo inicia el centro de datos, por lo que no se abre ningún puerto de entrada tras el NAT."),
         (L, "Detección: IDS/IPS en los firewalls, SIEM Wazuh (SIEM01) que recibe los eventos de pfSense, switches y servidores, y un servidor señuelo (HONEY01) en una VLAN propia."),
         (L, "Trazabilidad: cada elemento de las figuras sale del mismo modelo que genera las tablas, de modo que la matriz de componentes cubre el 100 % de lo dibujado."),
     ])
@@ -71,10 +72,10 @@ def main():
         (N, "El diseño dimensiona la red para 417 dispositivos de usuario y de operación, repartidos así: 70 PC y 10 laptops, 13 impresoras (5 de oficina y 8 de etiquetas), "
             "60 terminales de mano y 12 vehiculares, 60 teléfonos IP, 48 cámaras IP, 12 lectores de acceso y 20 sensores, 12 puntos de acceso y hasta 100 invitados. "
             "Todos tienen un rango DHCP reservado en su subred."),
-        (L, "Servicios de TI: 27 máquinas virtuales (22 Linux y 5 Windows) en cinco servidores Proxmox: directorio activo, RADIUS, WMS, bases de datos, respaldo, "
+        (L, f"Servicios de TI: {VM['n']} máquinas virtuales ({VM['linux']} Linux y {VM['windows']} Windows) en cinco servidores Proxmox: directorio activo, RADIUS, WMS privado, bases de datos HA, análisis DW/BI HA, respaldo, "
             "SIEM, monitoreo, telefonía, correo, control de acceso y videovigilancia."),
-        (L, "Infraestructura local y nube: el procesamiento está en el centro de datos local. La nube de Google aloja únicamente la VM de borde del túnel y el bucket de respaldos "
-            "fuera de sitio, que sirve de base para la recuperación ante desastre."),
+        (L, "Infraestructura local y nube: la operación corre en el centro de datos local y el WMS es 100 % privado (solo intranet y VPN Tailscale vía VIP 10.10.31.10). "
+            "Google Cloud aloja el gateway de borde (GCP-BORDE), el nodo de contingencia privado en standby (GCP-WMS-DRP, apagado en standby) y los buckets de Cloud Storage."),
         (L, "Conectividad a Internet: dos proveedores independientes, cada uno con un enlace hacia cada pfSense (cuatro enlaces en total). En el laboratorio un router Cisco C1111-4P "
             "emula esos cuatro enlaces (VLAN 901 a 904) a partir de una sola salida; en producción cada proveedor llegaría directo a una tarjeta WAN de los firewalls."),
     ])
@@ -82,15 +83,15 @@ def main():
         (N, "Cada proceso del negocio se asocia al servicio de TI que lo sostiene y a la criticidad de que la red esté disponible:"),
     ])
     llenar_tabla(T[1], [
-        ["Recepción, picking y despacho", "WMS: interfaz web y API (WMS01 activo, WMS02 en espera)", "Crítica"],
-        ["Control de stock y ubicaciones", "PostgreSQL con réplica en flujo (DB01 y DB02)", "Crítica"],
+        ["Recepción, picking y despacho", "WMS privado (Django DRF + React Nginx; WMS01/WMS02 con VIP 10.10.31.10)", "Crítica"],
+        ["Control de stock y ubicaciones", "PostgreSQL HA Patroni + etcd + VIP 10.10.32.10 (DB01, DB02 y testigo INFRA01)", "Crítica"],
         ["Identificación de personas y equipos", "Active Directory y DNS (DC1, DC2); RADIUS (AAA01, AAA02)", "Crítica"],
-        ["Intercambio con socios", "Proxy inverso con WAF (WAF01) y SFTP (SFTP01) en la DMZ", "Alta"],
-        ["Reportes e inteligencia de negocio", "Almacén de datos y tableros (DW01)", "Media"],
+        ["Intercambio con socios", "SFTP enjaulado (SFTP01) y WAF perimetral (WAF01, aislado del WMS) en DMZ", "Alta"],
+        ["Reportes e inteligencia de negocio", "DataWarehouse HA y Metabase BI (DW01, DW02 con VIP 10.10.33.10)", "Media"],
         ["Seguridad patrimonial", "Videovigilancia (NVR01) y control de acceso (ACS01)", "Alta"],
         ["Comunicación operativa", "Central telefónica (PBX01) y relé de correo (MAIL01)", "Media"],
         ["Auditoría y monitoreo de seguridad", "SIEM Wazuh (SIEM01), Zabbix (MON01), escáner de vulnerabilidades (VULN01)", "Alta"],
-        ["Continuidad y recuperación", "Respaldo Bareos (BKP01) y bucket en Google Cloud", "Alta"],
+        ["Continuidad y recuperación", "Respaldo Bareos (BKP01), sync FS01->BKP01 (rsync), bucket Cloud Storage y GCP-WMS-DRP", "Alta"],
     ])
     reemplazar_seccion(doc, "2.3 Partes interesadas relevantes a la red", [
         (N, "Las partes interesadas se identifican según ISO/IEC 27001:2022 (cláusula 4.2) y lo que esperan de la red:"),
@@ -112,7 +113,7 @@ def main():
         (N, "Los límites se definen en tres dimensiones:"),
         (L, "Físicos: un gabinete de 24U (R1) con el router, los siete switches y la sala de servidores contigua con cinco servidores Dell Precision en torre y los dos firewalls, también en torre."),
         (L, "Tecnológicos: switches Cisco Catalyst C9300L, C9200L y C1000; router Cisco C1111-4P; firewalls pfSense CE 2.8.1; hipervisores Proxmox VE; "
-            "túnel WireGuard; VPC de Google Cloud con una VM de borde y un bucket."),
+            "túnel WireGuard y Tailscale Subnet Router; VPC de Google Cloud con gateway GCP-BORDE, nodo privado GCP-WMS-DRP, Artifact Registry, Secret Manager, Cloud DNS y buckets."),
         (L, "Organizacionales: la administración de red es del equipo de TI. Se accede únicamente desde la VLAN de gestión, a través del bastión de la VLAN 70."),
     ])
     reemplazar_seccion(doc, "3.3 Exclusiones", [
@@ -186,24 +187,24 @@ def main():
         (N, "Los flujos autorizados salen de las reglas de pfSense (vars/reglas.yml). La tabla recoge los principales, con su protocolo y puerto:"),
     ])
     llenar_tabla(T[9], [
-        ["Terminales del almacén (VLAN 20 y 90)", "TCP 443", "WMS (WMS01 y WMS02, VLAN 31)"],
-        ["WMS (VLAN 31)", "TCP 5432", "PostgreSQL (DB01 y DB02, VLAN 32)"],
-        ["PostgreSQL DB01", "TCP 5432 (replicación en flujo)", "DB02 y almacén de datos DW01 (VLAN 33)"],
+        ["Terminales del almacén y Tailscale (VLAN 20, 90, VPN)", "TCP 443", "VIP WMS privada (10.10.31.10 -> WMS01/WMS02, VLAN 31)"],
+        ["WMS (VLAN 31)", "TCP 5432", "VIP PostgreSQL HA (10.10.32.10 -> DB01/DB02, VLAN 32)"],
+        ["Clústeres Patroni (DB01/02, DW01/02) e INFRA01", "TCP 5432, 2379-2380 y 8008", "Quórum etcd de 3 nodos y replicación streaming (VLAN 30, 32, 33)"],
         ["Oficinas (VLAN 10)", "TCP 88, 389, 445, 636 y UDP 53", "Active Directory (DC1 y DC2, VLAN 30)"],
-        ["Internet (NAT en WAN1 y WAN2)", "TCP 443 y 22", "Proxy WAF01 y SFTP01 (VLAN 80, DMZ)"],
-        ["Proxy WAF01 (DMZ)", "TCP 443", "WMS (VLAN 31)"],
+        ["Internet (NAT en WAN1 y WAN2)", "TCP 22 (sin NAT 443 al WMS privado)", "SFTP01 (VLAN 80, DMZ); WAF01 sin reenvío hacia WMS"],
+        ["FS01 (VLAN 30)", "TCP 873 (rsync)", "BKP01 (VLAN 120) — réplica cada 5 min para contingencia Samba"],
         ["Bastión MGMT01 (VLAN 70)", "TCP 22, 443, 3389 y 8006", "Servidores, switches e hipervisores"],
         ["Todas las VLAN", "TCP 1514, 1515 y UDP 514", "SIEM01 (Wazuh, VLAN 34)"],
         ["BKP01 (VLAN 120)", "TCP 9102 y 9103", "Servidores y almacenamiento de respaldo"],
-        ["BKP01 (VLAN 120)", "TCP 443 por el túnel WireGuard", f"Bucket {NUBE['respaldo']['bucket_respaldos']}"],
+        ["BKP01 (VLAN 120)", "TCP 443 (por WireGuard o salida TLS segura)", f"Bucket {NUBE['respaldo']['bucket_respaldos']} (pg_dump horario + rclone)"],
         ["Zabbix MON01 (VLAN 34)", "TCP 10050 y UDP 161 (SNMPv3)", "Servidores, switches e hipervisores"],
     ])
 
     reemplazar_seccion(doc, "5.6 Matriz de componentes de red", [
-        (N, "La matriz cubre todo lo que muestran las figuras: 17 equipos físicos y las dos piezas de la nube. Las máquinas virtuales están en la matriz del entregable S1_E2."),
+        (N, "La matriz cubre todo lo que muestran las figuras: 17 equipos físicos y las piezas principales de la nube. Las máquinas virtuales están en la matriz del entregable S1_E2."),
     ])
     filas = [["Router-Cisco (C1111-4P)", "168.121.48.246 y VLAN 901 a 904", "Borde / WAN", "NAT y emulación de los enlaces de los proveedores", "Crítica"],
-             ["FW-MAIN (pfSense CE)", "10.10.70.2 · VIP .1 en cada VLAN", "Perímetro", "Firewall activo, enrutamiento entre VLAN, CARP y túnel WireGuard", "Crítica"],
+             ["FW-MAIN (pfSense CE)", "10.10.70.2 · VIP .1 en cada VLAN", "Perímetro", "Firewall activo, enrutamiento entre VLAN, CARP, WireGuard y Tailscale", "Crítica"],
              ["FW-BACKUP (pfSense CE)", "10.10.70.3 · VIP .1 en cada VLAN", "Perímetro", "Firewall pasivo (CARP); toma el control si cae FW-MAIN", "Crítica"]]
     for n, s in SW.items():
         filas.append([f"{n} ({s['modelo']})", s["ip"], {"core": "Núcleo L2", "distribucion": "Distribución", "acceso": "Acceso", "tor": "ToR de servidores"}[s["rol"]],
@@ -211,9 +212,10 @@ def main():
                        "acceso": "Acceso de usuarios y punto de acceso", "tor": "Conecta los servidores Proxmox (un cable a cada ToR)"}[s["rol"]],
                       "Crítica" if s["rol"] in ("core", "tor") else "Alta"])
     filas += [["AP1-WIFI", "10.10.70.21", "Acceso Wi-Fi", "Cobertura inalámbrica (SSID en las VLAN 60 y 90)", "Media"],
-              ["HV-MAIN, HV1, HV2, HV3 y HV4 (Proxmox)", "10.10.70.41 y 10.10.70.44 a .47", "Hipervisores", "Alojan las 27 VM; bond hacia ambos ToR; forman el cluster PVE-COLOGISTIC", "Crítica"],
-              ["GCP-BORDE (Compute Engine)", f"{NUBE['recursos']['GCP-BORDE']['interfaces']['nic0']} y wg0 {TUNEL['extremos']['GCP-BORDE']['ip']}", "Nube · borde", "Extremo del túnel WireGuard; aloja la landing de contingencia", "Alta"],
-              ["GCP-BUCKET (Cloud Storage)", "Sin IP (API de Cloud Storage)", "Nube", "Copia fuera de sitio de respaldos de PostgreSQL y configuraciones", "Alta"]]
+              ["HV-MAIN, HV1, HV2, HV3 y HV4 (Proxmox)", "10.10.70.41 y 10.10.70.42 a .45", "Hipervisores", f"Alojan las {VM['n']} VM; bond hacia ambos ToR; forman el cluster PVE-COLOGISTIC", "Crítica"],
+              ["GCP-BORDE (Compute Engine e2-micro)", f"{NUBE['recursos']['GCP-BORDE']['interfaces']['nic0']} · wg0 {TUNEL['extremos']['GCP-BORDE']['ip']} · IP {NUBE['ip_publica']}", "Nube · borde", "Gateway WireGuard, Tailscale Subnet Router (10.20.0.0/24) y proxy TLS hacia DRP", "Alta"],
+              ["GCP-WMS-DRP (Compute Engine e2-medium)", f"{NUBE['recursos']['GCP-WMS-DRP']['interfaces']['nic0']} (sin IP pública)", "Nube · privada", "Servidor privado de contingencia WMS + BI + Postgres (apagado en standby = $0 cómputo)", "Alta"],
+              ["GCP-BUCKET (Cloud Storage)", "Sin IP (API Private Google Access)", "Nube", "Copia fuera de sitio horaria de respaldos PostgreSQL y archivos FS01", "Alta"]]
     llenar_tabla(T[10], filas)
 
     # ── 6. Conectividad híbrida ─────────────────────────────────────────────────────────────────────────────────
@@ -245,29 +247,28 @@ def main():
             "Los destinos se expresan como alias (servicios, puertos y redes), así que cambiar una máquina de lugar no obliga a reescribir reglas."),
     ])
     reemplazar_seccion(doc, "7.2 DMZ", [
-        (N, "La DMZ es la VLAN 80 (10.10.80.0/24) y aloja dos servidores: el proxy inverso con WAF (WAF01, 10.10.80.10) y el SFTP para socios (SFTP01, 10.10.80.20). "
-            "Desde Internet solo se publican dos puertos en cada enlace WAN: 443 hacia WAF01 y 22 hacia SFTP01."),
-        (N, "Desde la DMZ solo se permite que WAF01 llegue al WMS por el puerto 443 y que ambos servidores usen los servicios comunes (DNS, SIEM, parches, certificados y respaldo). "
-            "Las reglas bloquean y registran todo intento hacia la base de datos y hacia la red de gestión."),
+        (N, "La DMZ es la VLAN 80 (10.10.80.0/24) y aloja dos servidores: el WAF perimetral (WAF01, 10.10.80.10) y el SFTP para socios B2B (SFTP01, 10.10.80.20). "
+            "Por decisión arquitectónica D19, el sistema WMS es 100 % privado (solo Intranet corporativa y VPN Tailscale vía VIP 10.10.31.10); desde Internet solo se publica TCP 22 hacia SFTP01 y se retira el reenvío de WAF01 al WMS."),
+        (N, "Desde la DMZ se bloquea y registra todo intento de comunicación hacia el WMS (VLAN 31), las bases de datos (VLAN 32/33) y la red de gestión (VLAN 70), permitiendo únicamente servicios comunes autorizados (DNS, SIEM, parches, certificados y respaldo)."),
     ])
     reemplazar_seccion(doc, "7.3 Segmentación planeada", [
         (N, "La matriz resume lo que permiten y deniegan las reglas por pares de zonas (las del archivo reglas.yml del rol pfsense_base). Cada fila se probará en el Semestre 2:"),
     ])
     llenar_tabla(T[12], [
-        ["Internet → DMZ (WAF01 y SFTP01)", "PERMITIDO solo TCP 443 y 22 por NAT"],
+        ["Internet → DMZ (SFTP01)", "PERMITIDO TCP 22 por NAT; acceso WMS bloqueado (privado)"],
         ["Internet → red interna", "DENEGADO (política por defecto)"],
-        ["DMZ → base de datos (VLAN 32)", "DENEGADO y registrado"],
-        ["DMZ → gestión (VLAN 70)", "DENEGADO y registrado"],
-        ["WAF01 (DMZ) → WMS (VLAN 31)", "PERMITIDO solo TCP 443"],
-        ["Terminales y oficinas (VLAN 10, 20, 90) → WMS", "PERMITIDO TCP 443"],
-        ["Terminales (VLAN 20 y 90) → base de datos (VLAN 32)", "DENEGADO (solo el WMS llega a PostgreSQL)"],
+        ["DMZ → WMS (VLAN 31), BD (VLAN 32) y gestión (VLAN 70)", "DENEGADO y registrado"],
+        ["Terminales, oficinas y Tailscale (VLAN 10, 20, 90) → VIP WMS (.31.10)", "PERMITIDO TCP 443"],
+        ["Terminales (VLAN 20 y 90) → base de datos (VLAN 32)", "DENEGADO (solo el WMS llega a la VIP de PostgreSQL)"],
+        ["WMS (VLAN 31) → VIP PostgreSQL HA (.32.10)", "PERMITIDO TCP 5432"],
         ["Usuarios → gestión (VLAN 70) y respaldos (VLAN 120)", "DENEGADO"],
         ["Bastión MGMT01 (VLAN 70) → servidores, switches y cámaras", "PERMITIDO por SSH, HTTPS, RDP y 8006"],
         ["Invitados (VLAN 60) → red interna", "DENEGADO; solo sale a Internet por TCP 80 y 443"],
         ["Cámaras (VLAN 40) y dispositivos IoT (VLAN 110) → servidores, gestión y usuarios", "DENEGADO"],
         ["Señuelo (VLAN 130) → red interna", "DENEGADO; solo puede enviar sus alertas al SIEM"],
         ["Servidores y aplicaciones → señuelo (VLAN 130)", "PERMITIDO y registrado (cualquier acceso es una alerta)"],
-        ["BKP01 (VLAN 120) → nube", "PERMITIDO TCP 443 por el túnel"],
+        ["FS01 (VLAN 30) → BKP01 (VLAN 120)", "PERMITIDO TCP 873 (rsync cada 5 min)"],
+        ["BKP01 (VLAN 120) → nube", "PERMITIDO TCP 443 (por túnel o salida directa GCS)"],
     ])
 
     # ── 8. Detección ────────────────────────────────────────────────────────────────────────────────────────────

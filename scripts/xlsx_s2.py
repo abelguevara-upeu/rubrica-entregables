@@ -128,6 +128,14 @@ def plan_pruebas():
 
 
 def recuperacion():
+    destino = SALIDA / "S2_E3_registro_de_prueba_de_recuperacion.xlsx"
+    if destino.exists():
+        import openpyxl as _ox
+        wb_prev = _ox.load_workbook(destino)
+        ws_prev = wb_prev.active
+        if any(row[7] not in (None, "Pendiente", "Estado") for row in ws_prev.iter_rows(min_row=4, max_row=8, values_only=True)):
+            print("Conservando registro existente con evidencias reales en", destino.name)
+            return
     filas = [[s, rto, rpo, "", "", "", "", "Pendiente"] for s, rto, rpo in pd.RECUPERACION]
     wb, ws, f0 = libro("rec", "Registro de recuperación",
                        ["Servicio", "RTO objetivo", "RPO objetivo", "Fecha y hora de la falla", "Servicio restablecido a las", "RTO obtenido", "RPO obtenido", "Estado"],
@@ -141,7 +149,7 @@ def recuperacion():
     for k, p in enumerate(pd.PASOS_RECUPERACION, 1):
         ws.cell(r + k, 1, f"{k}. {p}")
     ws.cell(r + len(pd.PASOS_RECUPERACION) + 2, 1, "Evidencia: adjuntar la salida de los comandos y capturas, sin contraseñas. RTO y RPO obtenidos se completan al ejecutar el ejercicio.")
-    wb.save(SALIDA / "S2_E3_registro_de_prueba_de_recuperacion.xlsx")
+    wb.save(destino)
 
 
 if __name__ == "__main__":

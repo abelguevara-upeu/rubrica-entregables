@@ -59,10 +59,11 @@ def main():
             f"Capacidad física: {CAP['cores']} núcleos, {CAP['ram']:.1f} GB de RAM y {CAP['disco'] / 1000:.1f} TB de disco local."),
         (L, f"Máquinas virtuales: {VM['n']} ({VM['linux']} Linux y {VM['windows']} Windows) con {VM['vcpu']} vCPU, {VM['ram']:g} GB de RAM y {VM['disco']:g} GB de disco asignados. "
             "Los Linux se clonan de una plantilla cloud-init con Terraform; los Windows se instalan desde ISO."),
-        (L, "Disponibilidad: no hay almacenamiento compartido (348 GB locales por nodo, 1 TB en HV-MAIN). Por eso la redundancia es por servicio: cada par redundante "
-            "(controladores de dominio, RADIUS, WMS, PostgreSQL) va en hipervisores distintos (decisión D03)."),
-        (L, f"Tecnología cloud: Google Cloud, región {NUBE['region']} (Santiago de Chile). Una VPC ({NUBE['vpc']['rango']}) con una VM de borde (e2-micro) y un bucket de Cloud Storage para los respaldos."),
-        (L, "Integración híbrida: túnel WireGuard entre los dos pfSense y la VM de borde, descrito en el entregable S1_E1 (mismos extremos y mismas redes anunciadas)."),
+        (L, "Disponibilidad: no hay almacenamiento compartido (348 GB locales por nodo, 1 TB en HV-MAIN). Por eso la redundancia es por servicio con anti-afinidad D03: pares HA en nodos distintos, "
+            "Patroni + etcd (3 nodos de quórum: DB01, DB02, INFRA01) y VIPs keepalived (10.10.31.10, 10.10.32.10, 10.10.33.10), además de sync rsync cada 5 min FS01 -> BKP01."),
+        (L, f"Tecnología cloud: Google Cloud, región {NUBE['region']} (Santiago de Chile). Una VPC ({NUBE['vpc']['rango']}) con gateway GCP-BORDE (e2-micro, IP {NUBE['ip_publica']}, WireGuard + Tailscale), "
+            "nodo privado GCP-WMS-DRP (e2-medium, apagado en standby = $0 cómputo), Artifact Registry, Secret Manager, Cloud DNS privada y buckets de Cloud Storage."),
+        (L, "Integración híbrida: túnel WireGuard entre los dos pfSense y GCP-BORDE más Tailscale Subnet Router (10.10.0.0/16 y 10.20.0.0/24)."),
         (L, "Hoja de ruta: en el Semestre 2 se instala el cluster, se aprovisionan las máquinas con Terraform y se ejecuta la recuperación de PostgreSQL desde el bucket."),
     ])
     poner_figura(doc, T[0], "computo.png")
@@ -72,16 +73,16 @@ def main():
         (N, "Co-Logistic S.A.C. presta servicios de logística y depende de un WMS (interfaz web, API y base de datos PostgreSQL) que usan las oficinas y los terminales del almacén. "
             "Criterios para repartir las cargas entre el centro de datos local y la nube:"),
         (L, "Local: todo lo transaccional (WMS, PostgreSQL, directorio, RADIUS, archivos, telefonía, videovigilancia, SIEM y respaldo primario). Los terminales del almacén necesitan latencia baja y continuidad aunque falle Internet."),
-        (L, "Nube: solo lo que gana por estar fuera del sitio: la copia de los respaldos (dumps diarios cifrados de PostgreSQL y las configuraciones) y la VM de borde, que termina el túnel, "
-            "aloja una página de contingencia y coordina la restauración."),
+        (L, "Nube: solo lo que gana por estar fuera del sitio: respaldos fuera de sitio (dumps horarios cifrados de PostgreSQL y archivos FS01), el gateway GCP-BORDE "
+            "(WireGuard + Tailscale 10.20.0.0/24) y el servidor privado DRP (GCP-WMS-DRP, apagado en standby) respaldado por Artifact Registry, Secret Manager y Cloud DNS."),
         (L, "Información: los datos de stock e inventarios (PostgreSQL, VLAN 32) y las identidades (Active Directory) son los activos más críticos; su pérdida detiene la operación."),
         (L, f"Capacidad: el diseño dimensiona {VM['n']} máquinas y deja {100 - PCT_RAM:.0f} % de la RAM física libre para crecer o para absorber la caída de un nodo (sección 9)."),
     ])
 
     # ── 3. Alcance ──────────────────────────────────────────────────────────────────────────────────────────────
     reemplazar_seccion(doc, "3.1 Declaración de alcance", [
-        (N, "El alcance abarca el diseño del centro de datos local (gabinete R1 de 24U, sala de servidores, cinco hipervisores Proxmox, dos firewalls y sus 27 máquinas virtuales) "
-            "y de la extensión en Google Cloud (VPC, VM de borde y buckets), con su dimensionamiento, disponibilidad y respaldo. No incluye la implementación, que es del Semestre 2."),
+        (N, f"El alcance abarca el diseño del centro de datos local (gabinete R1 de 24U, sala de servidores, cinco hipervisores Proxmox, dos firewalls y sus {VM['n']} máquinas virtuales) "
+            "y de la extensión en Google Cloud (VPC, GCP-BORDE, GCP-WMS-DRP privado, Artifact Registry, Secret Manager, Cloud DNS y buckets), con su dimensionamiento, disponibilidad y respaldo. No incluye la implementación, que es del Semestre 2."),
     ])
     reemplazar_seccion(doc, "3.2 Límites", [
         (N, "Límites del diseño:"),
@@ -104,8 +105,8 @@ def main():
     llenar_tabla(T[1], [
         ["Que ningún par redundante comparta hipervisor", "Pares de servicio en el mismo nodo (el validador del modelo)", "0", "Infraestructura"],
         ["Dimensionar con holgura", "RAM y disco asignados sobre capacidad física", "RAM menor al 50 % y disco menor al 50 %", "Infraestructura"],
-        ["Tener copia fuera de sitio de los datos críticos", "Respaldo diario de PostgreSQL en el bucket de Cloud Storage", "1 copia diaria verificada", "Respaldo"],
-        ["Aprovisionar sin pasos manuales", "VM Linux creadas con Terraform desde la plantilla", "22 de 22 VM Linux", "Infraestructura"],
+        ["Tener copia fuera de sitio de los datos críticos", "Respaldo horario pg_dump + rclone (WMS, DW, Metabase y FS01) en Cloud Storage", "Copias horarias verificadas", "Respaldo"],
+        ["Aprovisionar sin pasos manuales", "VM Linux creadas con Terraform desde la plantilla", f"{VM['linux']} de {VM['linux']} VM Linux", "Infraestructura"],
     ])
 
     # ── 5. On-premise ───────────────────────────────────────────────────────────────────────────────────────────
@@ -132,7 +133,7 @@ def main():
         (L, "Agregación: bond0 active-backup; una de las dos NIC está activa y la otra espera, de modo que la caída de un ToR no corta el nodo."),
         (L, "Cluster: los cinco nodos forman PVE-COLOGISTIC con un solo enlace de corosync por la VLAN 70. Con cinco nodos se toleran dos caídas sin perder el quórum. "
             "Sin almacenamiento compartido, el cluster da gestión central y una vista única de capacidad, no alta disponibilidad de las VM."),
-        (L, "Regla D03: ningún par redundante comparte hipervisor. DC1 (HV2) y DC2 (HV-MAIN); AAA01 (HV2) y AAA02 (HV-MAIN); WMS01 (HV3) y WMS02 (HV-MAIN); DB01 (HV4) y DB02 (HV-MAIN). "
+        (L, "Regla D03: ningún par redundante comparte hipervisor. DC1 (HV2) y DC2 (HV-MAIN); AAA01 (HV2) y AAA02 (HV-MAIN); WMS01 (HV3) y WMS02 (HV-MAIN); DB01 (HV4) y DB02 (HV-MAIN); DW01 (HV4) y DW02 (HV1). "
             "FW-MAIN y FW-BACKUP son equipos distintos."),
         (L, "Despliegue: las VM Linux se clonan de una plantilla cloud-init (Debian 12) con Terraform y un identificador (VMID) fijo por máquina; las cinco Windows se instalan desde ISO. "
             "Docker Compose corre dentro de las VM donde el diseño lo indica (WMS, parches, certificados, GLPI y Oxidized, Metabase, relé SMTP, Guacamole y Vaultwarden)."),
@@ -152,7 +153,7 @@ def main():
     reemplazar_seccion(doc, "6.1 Selección de región y justificación", [
         (L, f"Región: {NUBE['region']} (Santiago de Chile). Es la región de Google Cloud más cercana a Perú en el Pacífico, lo que da menor latencia hacia el túnel que las de Norteamérica y deja los datos en Sudamérica. "
             "La latencia efectiva se medirá en el Semestre 2."),
-        (L, "Uso mínimo: solo una VM pequeña y dos buckets, porque la nube cubre únicamente el respaldo y la contingencia. Eso mantiene el costo bajo."),
+        (L, "Uso mínimo: solo una VM e2-micro siempre encendida (GCP-BORDE), un servidor DRP privado apagado en standby (GCP-WMS-DRP, $0 cómputo hasta emergencia) y servicios serverless/gestionados (Artifact Registry, Secret Manager, Cloud DNS, Cloud Storage). Eso mantiene el costo mínimo."),
         (L, "Continuidad: los respaldos en otra región geográfica distinta a la del centro de datos protegen ante la pérdida total de la sede."),
     ])
     reemplazar_seccion(doc, "6.2 Diseño de VPC", [
@@ -169,8 +170,10 @@ def main():
         (N, "Se usan los recursos mínimos que exige el servicio:"),
     ])
     llenar_tabla(T[7], [
-        ["GCP-BORDE", "Compute Engine e2-micro", "Termina el túnel WireGuard, publica una página de contingencia con Nginx y coordina la restauración de PostgreSQL desde Cloud Storage", "NUBE-BORDE (10.20.0.4)"],
-        ["GCP-BUCKET (respaldos)", "Cloud Storage (bucket)", f"Copia fuera de sitio de los dumps de DB01 y de las configuraciones ({NUBE['respaldo']['bucket_respaldos']})", "Sin subred (API de Cloud Storage)"],
+        ["GCP-BORDE", "Compute Engine e2-micro", f"Termina el túnel WireGuard (IP {NUBE['ip_publica']}), anuncia 10.20.0.0/24 vía Tailscale Subnet Router y hace proxy TLS privado hacia GCP-WMS-DRP", "NUBE-BORDE (10.20.0.4)"],
+        ["GCP-WMS-DRP", "Compute Engine e2-medium (TERMINATED)", "Servidor privado de contingencia WMS + BI + Postgres ($0 cómputo en standby; sin IP pública); restaura dumps y descarga imágenes por Private Google Access", "NUBE-PRIVADA (10.20.0.34)"],
+        ["Artifact Registry + Secret Manager + Cloud DNS", "Servicios gestionados GCP", "Repositorio privado wms-repo (CI/CD), secreto wms-drp-env cifrado y zona privada cologistic.net.", "Private Google Access / VPC"],
+        ["GCP-BUCKET (respaldos)", "Cloud Storage (bucket)", f"Copia fuera de sitio horaria de cologistic_wms, cologistic_dw, metabase_app y archivos FS01 ({NUBE['respaldo']['bucket_respaldos']})", "Sin subred (API de Cloud Storage)"],
         ["Bucket de estado de Terraform", "Cloud Storage (bucket)", f"Estado remoto de Terraform ({NUBE['respaldo']['bucket_estado_terraform']}), separado del de respaldos", "Sin subred"],
     ])
     reemplazar_seccion(doc, "6.4 Reglas de firewall de la VPC (equivalente a Security Groups y NACL)", [
@@ -191,13 +194,13 @@ def main():
         (L, "Redes anunciadas: 10.10.0.0/16 (centro de datos) y 10.20.0.0/24 (VPC). Cada lado tiene una ruta hacia el otro por el túnel."),
         (L, f"Respaldo fuera de sitio: BKP01 (10.10.120.11, VLAN 120) envía por TCP 443, por el túnel, las copias cifradas al bucket {NUBE['respaldo']['bucket_respaldos']}. "
             "La regla de pfSense solo permite ese destino hacia la nube desde la VLAN 120."),
-        (L, "Recuperación ante desastre (modelo de luz piloto): si se pierde la sede, la VM de borde, que ya existe, coordina la restauración de PostgreSQL desde el bucket sobre la subred NUBE-PRIVADA. "
-            "El resto de servicios se reconstruye con Terraform y Ansible desde el repositorio y el estado remoto."),
+        (L, "Recuperación ante desastre (modelo de luz piloto privado): en reposo gcp-wms-drp permanece TERMINATED ($0 cómputo). Ante caída total de la sede, al encender gcp-wms-drp ejecuta activar_contingencia_drp.sh: "
+            "obtiene credenciales desde Secret Manager, descarga las últimas imágenes Docker desde Artifact Registry, restaura cologistic_wms/dw/metabase desde Cloud Storage y publica por Tailscale y proxy TLS de gcp-borde."),
     ])
 
     # ── 8. Matriz de componentes ────────────────────────────────────────────────────────────────────────────────
     reemplazar_seccion(doc, "8. Matriz de componentes del centro de datos", [
-        (N, "La matriz cubre todo lo que muestran las figuras de este informe: el rack y sus equipos, la sala de servidores, las 27 máquinas y los recursos de la nube."),
+        (N, f"La matriz cubre todo lo que muestran las figuras de este informe: el rack y sus equipos, la sala de servidores, las {VM['n']} máquinas y los recursos de la nube."),
     ])
     filas = [["Gabinete R1 (24U)", "On-premise", "Rack", "Aloja el router y los siete switches; 16 U libres", "Crítica"],
              ["Router-Cisco (C1111-4P)", "On-premise", "Router", "Emula los enlaces de Internet (VLAN 901 a 904) y hace NAT", "Crítica"],
@@ -212,9 +215,11 @@ def main():
         filas.append([f"{n} (Proxmox VE)", "On-premise", "Hipervisor", f"{r['vcpu']} núcleos, {r['ram_gb']:g} GB, {r['disco_gb']:g} GB; aloja {c['n']} VM", "Crítica"])
     for n, d in sorted(datos.VMS.items(), key=lambda kv: (kv[1]["nodo"], kv[0])):
         filas.append([n, "On-premise", "VM " + ("Windows" if "Windows" in d["so"] else "Linux"), f"{d.get('rol') or '—'} · {d['nodo']}", datos.CRITICIDAD[n]])
-    filas += [["VPC-COLOGISTIC", "Nube", "VPC", f"{NUBE['vpc']['rango']}; tres subredes", "Alta"],
-              ["GCP-BORDE", "Nube", "Instancia Compute Engine e2-micro", "Extremo del túnel y contingencia", "Alta"],
-              ["GCP-BUCKET", "Nube", "Bucket de Cloud Storage", "Copia de respaldos fuera de sitio", "Alta"]]
+    filas += [["VPC-COLOGISTIC", "Nube", "VPC", f"{NUBE['vpc']['rango']}; tres subredes + Private Google Access", "Alta"],
+              ["GCP-BORDE", "Nube", "Instancia Compute Engine e2-micro", f"WireGuard ({NUBE['ip_publica']}), Tailscale Subnet Router y proxy TLS DRP", "Alta"],
+              ["GCP-WMS-DRP", "Nube", "Instancia Compute Engine e2-medium", "Servidor privado WMS + BI + Postgres DRP (10.20.0.34, TERMINATED en standby)", "Alta"],
+              ["Artifact Registry / Secret Manager / Cloud DNS", "Nube", "Servicios gestionados", "Imágenes Docker wms-repo, secretos DRP y resolución privada en contingencia", "Alta"],
+              ["GCP-BUCKET", "Nube", "Bucket de Cloud Storage", "Copia horaria fuera de sitio de BD (WMS/DW/Metabase) y archivos FS01", "Alta"]]
     llenar_tabla(T[9], filas)
 
     # ── 9. Dimensionamiento ─────────────────────────────────────────────────────────────────────────────────────
@@ -228,18 +233,19 @@ def main():
         (L, f"Margen de crecimiento: queda más de la mitad de la RAM y del disco libre. Se podrían agregar unas 10 VM del tamaño medio (3 vCPU, 3 GB, 35 GB) sin superar el 4 : 1."),
         (L, f"Caída de un nodo: si falla HV-MAIN (23 GB de RAM asignada), la RAM libre en los otros cuatro nodos es de unos {sum(HV[n]['ram_gb'] - CARGA[n]['ram'] for n in HV if n != 'HV-MAIN'):.0f} GB, suficiente. "
             "Como no hay almacenamiento compartido, las VM de ese nodo se restauran desde el respaldo (vzdump y Bareos). Por eso la plantilla de cloud-init existirá en cada nodo."),
-        (L, "Nube: GCP-BORDE usa e2-micro porque solo termina el túnel, sirve una página estática y coordina la restauración. La carga pesada (restaurar PostgreSQL) solo ocurre en un desastre; "
-            "en ese caso se podría subir el tipo de máquina o usar NUBE-PRIVADA para una instancia mayor."),
+        (L, "Nube: GCP-BORDE (e2-micro) solo termina el túnel WireGuard, anuncia 10.20.0.0/24 por Tailscale y actúa como proxy TLS; la carga de cómputo (PostgreSQL, WMS Django DRF + React Nginx, Metabase) "
+            "reside en GCP-WMS-DRP (e2-medium en NUBE-PRIVADA, sin IP pública), apagada en estado normal ($0 de cómputo) hasta un simulacro o desastre."),
     ])
 
     # ── 10. Disponibilidad ──────────────────────────────────────────────────────────────────────────────────────
     reemplazar_seccion(doc, "10. Consideraciones de disponibilidad y continuidad en el diseño", [
         (N, "Disponibilidad y continuidad:"),
-        (L, "Por servicio, no por hipervisor (D03). Directorio activo y DHCP: DC1 y DC2 con failover. RADIUS: AAA01 y AAA02. WMS: WMS01 activo y WMS02 en espera. PostgreSQL: DB01 con réplica en flujo en DB02. Firewalls: FW-MAIN y FW-BACKUP."),
-        (L, "Respaldo 3-2-1: (1) datos en producción; (2) copia local en BKP01, con Bareos y almacenamiento ZFS, más vzdump de Proxmox; (3) copia cifrada fuera de sitio en el bucket de Google Cloud. "
-            "Son tres copias en dos medios distintos, una fuera de sitio."),
-        (L, "Objetivos de recuperación preliminares (a validar en el Semestre 2): PostgreSQL y WMS, RPO de segundos con la réplica en flujo en el sitio y de 24 horas desde la nube (dump diario), RTO de minutos al pasar a la réplica y de horas desde el bucket. "
-            "Directorio, RADIUS y firewalls: RTO de minutos por redundancia. Servicios de apoyo (monitoreo, mesa de ayuda, telefonía): RTO de horas, con restauración desde respaldo."),
+        (L, "Por servicio con anti-afinidad (D03) y VIPs HA keepalived: Directorio activo y DHCP (DC1/DC2), RADIUS (AAA01/AAA02), WMS privado (WMS01/WMS02 con VIP 10.10.31.10), "
+            "PostgreSQL WMS (DB01/DB02 Patroni + quórum etcd de 3 nodos con testigo INFRA01, VIP 10.10.32.10), DataWarehouse + Metabase BI (DW01/DW02 Patroni + VIP 10.10.33.10 sobre metabase_app), "
+            "archivos (FS01 replicado cada 5 min vía rsync hacia BKP01 con Samba de contingencia) y Firewalls (FW-MAIN/FW-BACKUP con CARP)."),
+        (L, "Respaldo 3-2-1: (1) datos en producción; (2) copia local en BKP01 (Bareos + ZFS + rsync FS01 + pg_dump horario WMS/DW/Metabase), más vzdump de Proxmox; (3) copia cifrada fuera de sitio horaria en Cloud Storage."),
+        (L, "Objetivos de recuperación preliminares: PostgreSQL y DW/BI, RPO de segundos con Patroni HA en sitio y 1 hora en la nube (pg_dump horario); RTO de minutos por failover VIP automático y menor a 4 horas en GCP-WMS-DRP. "
+            "FS01: RPO de 5 minutos mediante rsync hacia BKP01."),
         (L, "Red: bond active-backup hacia dos ToR, doce port-channels LACP entre los switches y dos proveedores de Internet con conmutación en pfSense."),
         (L, "Límite: sin almacenamiento compartido, la pérdida de un nodo requiere restaurar sus VM; la energía y el clima de la sala no forman parte de este diseño."),
     ])

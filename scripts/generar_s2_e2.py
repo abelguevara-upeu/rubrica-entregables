@@ -34,14 +34,14 @@ def contenido():
         ["Switches Cisco (7) con VLAN, STP, port-channels y puertos sin uso", "Implementado", "Roles cisco_switching; tablero de laboratorio; docs/switches.md"],
         ["Router Cisco C1111-4P (borde, NAT, VLAN 901 a 904)", "Implementado", "Rol cisco_edge; verificado en el equipo"],
         ["Firewall pfSense: sistema, VLAN, WAN, alta disponibilidad, alias, NAT, reglas, DHCP y registros", "Automatizado", f"10 playbooks y el rol pfsense_base; {REGLAS['total']} reglas"],
-        ["VPC de Google Cloud, VM de borde, firewall, ruta, buckets y alerta", "Implementado", "Estado de Terraform (etapa 50), 19 recursos"],
-        ["Túnel WireGuard: extremo en la nube", "Implementado", "VM de borde con WireGuard instalado por su script de arranque"],
-        ["Túnel WireGuard: extremo en pfSense", "Pendiente", "Sin rol en el repositorio; falta intercambiar claves y crear la interfaz wg0"],
+        ["VPC de Google Cloud, GCP-BORDE, firewall, ruta, buckets, GCP-WMS-DRP, Artifact Registry, Secret Manager, Cloud DNS y alerta", "En revisión (IaC completa en main.tf)", "Etapa 50 (Terraform): gcp-borde desplegado; recursos DRP y Tailscale codificados pendientes de apply"],
+        ["Túnel WireGuard: extremo en la nube", "Implementado", "VM de borde con WireGuard + Tailscale Subnet Router (10.20.0.0/24)"],
+        ["Túnel WireGuard y Tailscale: extremo en pfSense", "Automatizado", "Playbooks nube_tunel.yml y pfsense_10_acceso_remoto.yml (Subnet Router 10.10.0.0/16); pendiente aplicar en vivo"],
         ["Señuelo OpenCanary (HONEY01)", "Automatizado", "Rol honeypot; despliegue en los commits de noviembre"],
         ["SIEM Wazuh (SIEM01) y syslog remoto", "Automatizado", "Rol wazuh_server; envío de syslog desde pfSense"],
         ["Monitoreo Zabbix (MON01)", "Automatizado", "Rol zabbix_server (Docker)"],
         ["IDS/IPS en pfSense", "Pendiente", "Sin rol en el repositorio; decisión Suricata o Snort pendiente"],
-        ["Pruebas de permitido y denegado (28 casos)", "Pendiente", "Plan completo; resultados por obtener"],
+        [f"Pruebas de permitido y denegado ({len(pd.PRUEBAS_RED)} casos)", "Pendiente", "Plan completo; resultados por obtener"],
     ])
 
     # ── 2 ───────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -55,7 +55,8 @@ def contenido():
         ["Red de gestión en la VLAN 70 sin red fuera de banda", "Igual", "Ninguno; se retiró la red de laboratorio con el Router Cisco como alternativa."],
         ["Cluster Proxmox de cinco nodos", "Igual, con renombrado de nodos (HV-MAIN y HV1 a HV4)", "Decisión D15, para distinguir el servidor de respaldo."],
         ["Señuelo con SSH, SMB y HTTP", "OpenCanary con HTTP 80, SMB 445 y FTP 21; el rol prevé mover el SSH real de administración al puerto 2222", "Para que el puerto 22 del señuelo no se confunda con el acceso real de gestión; a confirmar en el equipo."],
-        ["Túnel entre pfSense y GCP-BORDE", "El extremo de la nube está desplegado; el de pfSense falta", "Pendiente de automatizar; no cambia el diseño."],
+        ["Túnel entre pfSense y GCP-BORDE", "Automatizado en nube_tunel.yml + acceso_remoto.yml (Tailscale)", "Falta ejecutar/verificar en hardware pfSense; además añade acceso directo 10.20.0.0/24 si caen los routers locales."],
+        ["Exposición pública del WMS vía WAF01", "WMS privado (Intranet + Tailscale); WAF01 devuelve 403", "Decisión D19: sin NAT 443 público al WMS; WAF01 queda aislado para futuros portales externos."],
         ["Firewall de la VPC: UDP 51820 solo desde la IP del centro de datos", "UDP 51820 permitido desde cualquier origen", "Desviación (hallazgo H02 del SGSI): se restringirá cuando se conozca la IP pública del centro de datos."],
         ["IDS/IPS en pfSense", "No implementado", "Pendiente; el paquete se instalará y configurará (hallazgo H05)."],
         ["VPC con tres subredes", "Igual: NUBE-BORDE, NUBE-TUNEL y NUBE-PRIVADA", "NUBE-PRIVADA se agregó el 3 de noviembre para la recuperación ante desastre."],
@@ -65,20 +66,21 @@ def contenido():
     # ── 3 ───────────────────────────────────────────────────────────────────────────────────────────────────────
     r.h1("Conectividad híbrida implementada: VPN y enrutamiento")
     r.h2("Lado Google Cloud")
-    r.p("La etapa 50 de Terraform creó la VPC vpc-cologistic y los recursos de la tabla. El estado de Terraform registra 19 recursos aplicados, que son la evidencia de que están desplegados.")
-    r.tabla(["Recurso", "Configuración desplegada"], [
+    r.p("La etapa 50 de Terraform define la VPC vpc-cologistic, la puerta de borde gcp-borde (34.176.121.24), el nodo privado gcp-wms-drp (TERMINATED en standby) y los servicios nativos de contingencia y CI/CD:")
+    r.tabla(["Recurso", "Configuración"], [
         ["VPC y subredes", "vpc-cologistic 10.20.0.0/24; nube-borde 10.20.0.0/28, nube-tunel 10.20.0.16/29 y nube-privada 10.20.0.32/28 (con acceso privado a las API de Google)"],
-        ["VM de borde", "gcp-borde, e2-micro en southamerica-west1-a, IP interna 10.20.0.4, reenvío de IP activado; el script de arranque instala WireGuard y Nginx con una página de contingencia"],
-        ["IP pública", "ip-gcp-borde, dirección externa estática"],
-        ["Ruta", "ruta-a-datacenter: 10.10.0.0/16 con salto en la VM de borde"],
-        ["Firewall", "fw-permitir-wireguard (UDP 51820 desde cualquier origen); fw-permitir-trafico-tunel (todo desde 10.10.0.0/16); fw-permitir-ssh-seguro (TCP 22 desde 10.10.70.0/24 y desde el rango de Google IAP, 35.235.240.0/20); fw-permitir-web-contingencia (TCP 80 y 443)"],
-        ["Almacenamiento", "Bucket de respaldos (versionado y eliminación a los 90 días) y bucket del estado de Terraform (versionado), ambos con acceso uniforme"],
-        ["Identidades", "Cuentas de servicio sa-respaldo, sa-terraform y sa-logs; sa-respaldo con roles/storage.objectAdmin solo sobre el bucket de respaldos"],
+        ["Gateway de borde", "gcp-borde, e2-micro en southamerica-west1-a, IP interna 10.20.0.4, IP pública estática 34.176.121.24; ejecuta WireGuard, Tailscale Subnet Router (10.20.0.0/24) y proxy TLS"],
+        ["Nodo privado DRP", "gcp-wms-drp, e2-medium en NUBE-PRIVADA (10.20.0.34), sin IP pública, desired_status = TERMINATED ($0 cómputo standby); Docker WMS + BI + Postgres"],
+        ["Servicios gestionados GCP", "Artifact Registry (wms-repo CI/CD), Secret Manager (wms-drp-env), Cloud DNS privada (cologistic.net.) y Cloud Logging (sa-logs)"],
+        ["Ruta", "ruta-a-datacenter: 10.10.0.0/16 con salto en gcp-borde"],
+        ["Firewall", "fw-permitir-wireguard (UDP 51820); fw-permitir-trafico-tunel (10.10.0.0/16); fw-permitir-ssh-seguro (TCP 22 desde 10.10.70.0/24 e IAP); fw-permitir-web-contingencia (TCP 80 y 443); fw-permitir-drp-privado (hacia gcp-wms-drp)"],
+        ["Almacenamiento", "Bucket de respaldos horarios (versionado y eliminación a los 90 días) y bucket del estado de Terraform (versionado), ambos con acceso uniforme"],
+        ["Identidades", "Cuentas de servicio sa-respaldo, sa-terraform y sa-logs (con roles/logging.logWriter)"],
         ["Monitoreo", "Alerta de CPU de GCP-BORDE mayor al 85 % durante 5 minutos, con canal de notificación por correo"],
     ])
     r.h2("Lado pfSense")
-    r.p("El extremo del túnel en los firewalls todavía no está automatizado: el rol de pfSense solo define los alias de la red de la nube. Falta crear la interfaz wg0 (10.20.0.18 en FW-MAIN y 10.20.0.19 en FW-BACKUP), "
-        "intercambiar las claves públicas con GCP-BORDE, agregar la ruta a 10.20.0.0/24 y la regla hacia la nube desde la VLAN 120. Con eso la prueba T01 se puede ejecutar.")
+    r.p("La automatización de ambos accesos híbridos ya existe en el repositorio (etapas/50-nube/playbooks/nube_tunel.yml para WireGuard wg0 10.20.0.18/19 y etapas/10-red/roles/pfsense_base/tasks/acceso_remoto.yml para Tailscale Subnet Router 10.10.0.0/16). "
+        "Queda pendiente aplicar ambos playbooks en los firewalls físicos con las claves reales en .env para ejecutar las pruebas T01, T02, T29 y T30.")
     r.fig("vpn.png", "Figura 3.1 — Conexión híbrida: firewalls, router y VPC de Google Cloud con el túnel WireGuard", ancho_cm=9.5)
     r.h2("Enrutamiento")
     r.bullets(
@@ -96,8 +98,8 @@ def contenido():
         ["WAN", "Los dos enlaces de proveedor, con conmutación por falla del ISP1 al ISP2"],
         ["Alta disponibilidad", "IP virtual CARP (.1) en cada VLAN y sincronización pfsync y XMLRPC por la VLAN 100"],
         ["Alias", "Servicios, puertos y redes (por ejemplo SRV_WMS, PTO_AD y NET_SERVIDORES)"],
-        ["NAT", "Publicación del 443 hacia WAF01 y del 22 hacia SFTP01, en ambos enlaces"],
-        ["Reglas", f"{REGLAS['total']} reglas por interfaz"],
+        ["NAT", "Publicación del puerto 22 hacia SFTP01 en ambos enlaces; NAT 443 hacia WMS eliminado (estado absent; servicio privado)"],
+        ["Reglas", f"{REGLAS['total']} reglas por interfaz (incluye VIPs HA .31.10/.32.10/.33.10, etcd 2379-2380 y rsync 873)"],
         ["DHCP", "Retransmisión del DHCP de las VLAN de usuarios hacia los controladores de dominio"],
         ["Registros", "Envío de syslog a SIEM01 (10.10.34.20) desde la VLAN de gestión"],
         ["Acceso remoto", "VPN administrativa de acceso a la VLAN 70"],
@@ -108,8 +110,8 @@ def contenido():
     r.tabla(["Interfaz (VLAN)", "Reglas de paso", "Reglas de bloqueo", "Total"], reglas_por_zona())
     r.fig("zonas.png", "Figura 4.1 — Parte superior de la vista de red: nube, router, enlaces de proveedor, firewalls y primeras zonas")
     r.h2("DMZ")
-    r.p("La DMZ es la VLAN 80, con WAF01 (Nginx con ModSecurity, que hace de proxy inverso hacia el WMS) y SFTP01 (SFTP enjaulado por socio). Desde Internet solo se publican TCP 443 hacia WAF01 y TCP 22 hacia SFTP01, "
-        "por NAT en los dos enlaces. Desde la DMZ solo se permite que WAF01 llegue al WMS por el 443; las reglas bloquean y registran los intentos hacia la base de datos y hacia la gestión.")
+    r.p("La DMZ es la VLAN 80, con WAF01 y SFTP01 (SFTP enjaulado por socio). Por decisión arquitectónica D19, el sistema WMS es 100 % privado (Intranet + VPN Tailscale vía VIP 10.10.31.10), "
+        "por lo que desde Internet solo se publica TCP 22 hacia SFTP01; WAF01 devuelve HTTP 403 ante tráfico externo al WMS y las reglas DMZ → SRV_WMS, VLAN 32 y VLAN 70 están bloqueadas y registradas.")
 
     # ── 5 ───────────────────────────────────────────────────────────────────────────────────────────────────────
     r.h1("IDS/IPS, honeypot y detección implementados")
@@ -138,7 +140,7 @@ def contenido():
 
     # ── 7 ───────────────────────────────────────────────────────────────────────────────────────────────────────
     r.h1("Plan y resultados de pruebas técnicas")
-    r.p("El plan tiene 28 casos, positivos (debe pasar) y negativos (debe bloquearse o detectarse). Cada caso indica objetivo, precondición, pasos y resultado esperado. "
+    r.p(f"El plan tiene {len(pd.PRUEBAS_RED)} casos, positivos (debe pasar) y negativos (debe bloquearse o detectarse). Cada caso indica objetivo, precondición, pasos y resultado esperado. "
         "El criterio de aceptación es que el resultado obtenido coincida con el esperado y que haya evidencia. Todos los casos están pendientes de ejecución; el archivo Excel «Plan y resultados de pruebas» "
         "tiene las columnas para el resultado obtenido, la evidencia y el estado.")
     r.tabla(["ID", "Objetivo", "Pasos", "Resultado esperado", "Obtenido", "Estado"],
@@ -163,9 +165,9 @@ def contenido():
     # ── 9 ───────────────────────────────────────────────────────────────────────────────────────────────────────
     r.h1("Conclusiones")
     r.bullets(
-        "La red diseñada está implementada en los switches y el router, y automatizada en los firewalls; la nube está desplegada.",
-        "Faltan dos piezas para cerrar el perímetro: el extremo del túnel en pfSense y el IDS/IPS.",
-        "El plan de 28 pruebas cubre el túnel, el perímetro, la segmentación, la alta disponibilidad, la detección y el monitoreo, y está listo para ejecutarse.",
+        "La red diseñada está automatizada en switches, router y firewalls (incluidos acceso remoto Tailscale y reglas de WMS privado).",
+        "Quedan pendientes de aplicar y validar en el equipamiento físico el extremo del túnel WireGuard/Tailscale, las reglas DRP en GCP y el módulo IDS/IPS.",
+        f"El plan de {len(pd.PRUEBAS_RED)} pruebas cubre el túnel, Tailscale Cloud, el bloqueo DMZ->WMS, la segmentación, Patroni HA y el monitoreo, y está listo para ejecutarse.",
         "Los resultados de las pruebas no se declaran hasta contar con la evidencia de su ejecución.")
 
     r.biblio(

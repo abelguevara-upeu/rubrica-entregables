@@ -26,7 +26,7 @@ def contenido():
     r.h1("Resumen ejecutivo")
     r.p("Este informe presenta el Sistema de Gestión de Seguridad de la Información (SGSI) de Co-Logistic S.A.C. conforme a ISO/IEC 27001:2022, con el análisis de riesgos de "
         "ISO/IEC 27005. El SGSI cubre la infraestructura híbrida diseñada en el Semestre 1: la red segmentada de siete switches y dos firewalls, el cluster Proxmox de cinco servidores "
-        "con 27 máquinas virtuales y la extensión en Google Cloud.")
+        f"con {datos.totales_vm()['n']} máquinas virtuales y la extensión en Google Cloud.")
     r.bullets(
         f"Inventario: {len(INV)} activos con propietario, ubicación, criticidad y clasificación C-I-D.",
         f"Riesgos: {len(RIESGOS)} riesgos evaluados con una escala de 1 a 5 de impacto y probabilidad; {n_alto} están en nivel alto o crítico antes del tratamiento y {n_alto_res} después.",
@@ -54,8 +54,8 @@ def contenido():
     ])
     r.h2("Alcance del SGSI")
     r.p("El SGSI comprende la infraestructura tecnológica híbrida de Co-Logistic S.A.C.: el rack R1 con el router y los siete switches Cisco, los dos firewalls pfSense, los cinco hipervisores "
-        "Proxmox VE y sus 27 máquinas virtuales, los servicios que corren en ellas (directorio, WMS, bases de datos, respaldo, monitoreo, telefonía, correo, control de acceso y videovigilancia) "
-        "y los recursos de Google Cloud (VPC, VM de borde, buckets y cuentas de servicio), junto con las redes, el túnel, el monitoreo y los procesos de administración asociados.")
+        f"Proxmox VE y sus {datos.totales_vm()['n']} máquinas virtuales, los servicios que corren en ellas (directorio, WMS privado, bases de datos Patroni HA, DataWarehouse HA, respaldo, monitoreo, telefonía, correo, control de acceso y videovigilancia) "
+        "y los recursos de Google Cloud (VPC, GCP-BORDE, GCP-WMS-DRP privado, Artifact Registry, Secret Manager, Cloud DNS, buckets y cuentas de servicio), junto con las redes, los túneles WireGuard/Tailscale, el monitoreo y los procesos de administración asociados.")
     r.p("Este alcance es el mismo de los entregables S1_E1 (red) y S1_E2 (centro de datos). Quedan fuera los dispositivos personales, las redes de los proveedores, el código del WMS y "
         "los procesos de contratación y de oficina.")
     r.fig("enlace.png", "Figura 2.1 — Alcance técnico del SGSI: red, cluster y nube (vista de enlace del modelo)")
@@ -141,8 +141,8 @@ def contenido():
         "Las alertas de presupuesto y de capacidad de la nube se revisan cada mes.")
     r.h2("Política de respaldo y recuperación ante desastres")
     r.bullets(
-        "Esquema 3-2-1: los datos de producción, una copia local en BKP01 (Bareos y almacenamiento ZFS) y una copia cifrada fuera de sitio en el bucket de Cloud Storage.",
-        "Respaldo diario a las 02:00 de PostgreSQL (DB01) y de las configuraciones, con sincronización al bucket; las máquinas virtuales se respaldan con vzdump de Proxmox.",
+        "Esquema 3-2-1: los datos de producción, copia local en BKP01 (Bareos + ZFS + réplica rsync FS01 cada 5 min) y copia cifrada horaria fuera de sitio en Cloud Storage (pg_dump + rclone).",
+        "Respaldo horario de PostgreSQL HA (cologistic_wms, cologistic_dw, metabase_app) y sincronización incremental FS01->BKP01 al bucket; las VM locales se respaldan con vzdump de Proxmox.",
         "El bucket conserva versiones y elimina objetos a los 90 días.",
         "Se hace un ejercicio de recuperación al menos cada seis meses y se compara el RTO y RPO obtenidos con los objetivos.",
         "La restauración de un servicio crítico sigue el orden: directorio, base de datos, WMS, y después los servicios de apoyo.")
@@ -196,8 +196,10 @@ def contenido():
     r.p("Son objetivos de diseño coherentes con la arquitectura (redundancia por servicio y copia fuera de sitio). Se validarán en el ejercicio de recuperación del entregable S2_E3.")
     r.tabla(["Servicio", "Criticidad", "Mecanismo", "RTO objetivo", "RPO objetivo"], [
         ["Active Directory, DNS y DHCP (DC1, DC2)", "Crítica", "Dos controladores con replicación y DHCP en failover", "15 minutos", "Casi cero"],
-        ["PostgreSQL (DB01, DB02)", "Crítica", "Réplica en flujo; copia diaria a la nube", "15 minutos (réplica); 4 horas (nube)", "Segundos (réplica); 24 horas (nube)"],
-        ["WMS (WMS01, WMS02)", "Crítica", "Nodo activo y nodo en espera", "15 minutos", "Los datos están en PostgreSQL"],
+        ["PostgreSQL (DB01, DB02)", "Crítica", "Patroni HA + etcd + VIP 10.10.32.10; copia horaria GCS", "15 minutos (failover); 4 horas (DRP nube)", "Segundos (Patroni); 1 hora (dump horario)"],
+        ["DataWarehouse / BI (DW01, DW02)", "Media", "Patroni HA + VIP 10.10.33.10; metadatos metabase_app", "15 minutos (failover); 4 horas (DRP nube)", "Segundos (Patroni); 1 hora (dump horario)"],
+        ["WMS (WMS01, WMS02)", "Crítica", "VIP keepalived 10.10.31.10; privado Intranet/Tailscale", "15 minutos", "Los datos están en PostgreSQL"],
+        ["Archivos FS01 (FS01 -> BKP01)", "Media", "Réplica rsync cada 5 min + contingencia Samba BKP01", "15 minutos", "5 minutos (rsync)"],
         ["Firewalls (FW-MAIN, FW-BACKUP)", "Crítica", "CARP y pfsync", "Segundos", "Sin pérdida de estado"],
         ["RADIUS (AAA01, AAA02)", "Alta", "Dos servidores", "15 minutos", "Casi cero"],
         ["SIEM, monitoreo y bastión", "Alta", "Restauración desde vzdump", "8 horas", "24 horas"],
@@ -265,12 +267,12 @@ def contenido():
          "Restringir el origen a la IP del centro de datos y asignar una cuenta de servicio dedicada.", "Responsable de Redes"],
         ["H03", "El token de Terraform en Proxmox tiene el rol Administrador sobre todo el cluster.", "No conformidad menor", "A.8.2",
          "Crear un rol con los permisos de VM y almacenamiento y reasignar el token.", "Jefatura de TI"],
-        ["H04", "El WAF01 y Vaultwarden usan certificados TLS autofirmados.", "No conformidad menor", "A.8.24",
+        ["H04", "WAF01 y Vaultwarden usan certificados TLS autofirmados (WAF01 ya desacoplado del WMS privado).", "No conformidad menor", "A.8.24",
          "Emitirlos con la autoridad interna step-ca de INFRA01.", "Responsable de Seguridad"],
-        ["H05", "El IDS/IPS de pfSense y el extremo WireGuard de pfSense no están automatizados en el repositorio.", "Observación", "A.8.16, A.5.7",
-         "Escribir el rol e implementar el IDS; documentar la configuración del túnel.", "Responsable de Redes"],
-        ["H06", "Los datos del diseño y lo desplegado difieren: los nombres de los buckets (cologistic-respaldos-sa-west1 en el modelo y cologistic-respaldos-cologistic-cloud en la nube) y el tablero de avance de laboratorio está desactualizado.", "Observación", "A.8.9",
-         "Alinear el modelo con lo desplegado y regenerar la especificación; actualizar el tablero.", "Jefatura de TI"],
+        ["H05", "El IDS/IPS de pfSense no está automatizado en el repositorio; WireGuard y Tailscale ya están codificados pero falta validar en vivo en pfSense.", "Observación", "A.8.16, A.5.7",
+         "Escribir el rol de IDS y aplicar/verificar acceso_remoto y nube_tunel en hardware.", "Responsable de Redes"],
+        ["H06", "El diseño y la infraestructura ya fueron alineados (34.176.121.24, DW02, GCP-WMS-DRP); queda homologar el sufijo del bucket en nube.yml (sa-west1 vs project_id) y actualizar el tablero de avance.", "Observación", "A.8.9",
+         "Homologar el identificador exacto del bucket tras nube-apply y actualizar el tablero.", "Jefatura de TI"],
         ["H07", "La restauración de respaldos no se ha probado todavía.", "Observación", "A.8.13, A.5.30", "Ejecutar el ejercicio de recuperación (entregable S2_E3).", "Responsable de Datos"],
         ["H08", "Los switches no tienen configurado el envío de syslog hacia SIEM01.", "Observación", "A.8.15", "Agregar el servidor de syslog en el rol de switches.", "Responsable de Redes"],
         ["H09", "Los switches C1000 solo ofrecen algoritmos SSH antiguos.", "Observación", "A.8.5", "Riesgo aceptado (R16) hasta actualizar IOS.", "Responsable de Redes"],
@@ -285,7 +287,7 @@ def contenido():
     r.tabla(["Necesidad del negocio", "Objetivo", "Riesgo", "Control", "Evidencia o componente"], [
         ["Operar el WMS sin interrupciones", "Recuperar los servicios críticos", "R03, R10", "A.8.14, A.8.13, A.5.30", "Pares D03, Bareos, bucket de respaldos, ejercicio de recuperación (S2_E3)"],
         ["Proteger la base de datos", "Aplicar los controles", "R06, R18", "A.8.22, A.8.3", "Reglas de bloqueo de pfSense; VLAN 32; pruebas de S2_E2"],
-        ["Evitar el movimiento lateral", "Aplicar los controles", "R01, R06, R15", "A.8.22, A.8.20", "18 VLAN en 12 zonas; 146 reglas"],
+        ["Evitar el movimiento lateral", "Aplicar los controles", "R01, R06, R15", "A.8.22, A.8.20", f"18 VLAN en 12 zonas; {datos.resumen_reglas()['total']} reglas"],
         ["Administrar de forma controlada", "Aplicar los controles", "R04, R07, R20", "A.5.15, A.8.2, A.8.5", "Bastión, Vaultwarden, RADIUS, rol de Proxmox"],
         ["Detectar intrusiones", "Detectar incidentes a tiempo", "R13", "A.8.15, A.8.16", "SIEM01 (Wazuh), OpenCanary, Zabbix; IDS pendiente"],
         ["Mantener la conectividad con la nube", "Cifrar el enlace", "R08, R09", "A.8.24, A.5.23", "Túnel WireGuard, firewall de la VPC (hallazgo H02)"],

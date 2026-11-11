@@ -36,26 +36,26 @@ PROPOSITO_VLAN = {
     "ADMINISTRACION": "PC y laptops de oficina; dos estaciones de administración (PAW01 y PAW02)",
     "OPERACIONES_WMS": "Terminales de almacén que usan el WMS, impresoras de etiquetas y de oficina",
     "INFRAESTRUCTURA": "Directorio activo (DC1, DC2), RADIUS, archivos, caché de parches, autoridad de certificados",
-    "APLICACIONES": "Servidores del WMS: interfaz web y API (WMS01 activo, WMS02 en espera)",
-    "BASE_DATOS": "PostgreSQL con réplica en flujo (DB01 activo, DB02 réplica)",
-    "DATA_WAREHOUSE": "Almacén analítico y tableros de inteligencia de negocio (DW01)",
+    "APLICACIONES": "Servidores del WMS privado (Django DRF + React Nginx; WMS01/WMS02 con VIP keepalived 10.10.31.10)",
+    "BASE_DATOS": "PostgreSQL HA con Patroni + etcd + VIP 10.10.32.10 (DB01 y DB02, 2 vCPU / 4 GB)",
+    "DATA_WAREHOUSE": "DataWarehouse analítico HA (DW01 y DW02) con Patroni + VIP 10.10.33.10 y Metabase BI (metabase_app)",
     "MONITOREO_SEGURIDAD": "SIEM Wazuh, escáner de vulnerabilidades, monitoreo Zabbix y mesa de ayuda",
     "COMUNICACIONES": "Central telefónica IP (PBX01) y relé de correo (MAIL01)",
     "CCTV": "Cámaras IP y grabador de video (NVR01); única VLAN que no pasa por el firewall hacia su grabador (D02)",
     "VOZ_IP": "Teléfonos IP de escritorio",
     "INVITADOS_WIFI": "Wi-Fi de visitantes: solo sale a Internet",
     "GESTION_TI": "Administración de switches, hipervisores y firewalls; bastión y bóveda de secretos",
-    "DMZ": "Servicios expuestos: proxy inverso con WAF (WAF01) y SFTP para socios (SFTP01)",
+    "DMZ": "WAF perimetral aislado del WMS privado (WAF01) y SFTP para socios (SFTP01)",
     "WIFI_INDUSTRIAL": "Terminales inalámbricos de almacén y puntos de acceso",
     "HA_SYNC": "Sincronización entre FW-MAIN y FW-BACKUP (CARP, pfsync); sin gateway",
     "IOT_CONTROL_ACCESO": "Lectores de puerta y sensores; servidor de control de acceso (ACS01)",
-    "BACKUP_STORAGE": "Servidor de respaldos Bareos con almacenamiento ZFS (BKP01)",
+    "BACKUP_STORAGE": "Respaldos Bareos + ZFS (BKP01), pg_dump/rclone horario a GCS y contingencia Samba FS01 (rsync 5 min)",
     "HONEYPOT": "Servidor señuelo (HONEY01): cualquier conexión hacia él es una alerta",
 }
 
 # Criticidad de cada VM según el servicio que presta (Crítica: sin ella se detiene la operación)
 CRITICIDAD = {"DC1": "Crítica", "DC2": "Crítica", "AAA01": "Alta", "AAA02": "Alta", "WMS01": "Crítica", "WMS02": "Crítica",
-              "DB01": "Crítica", "DB02": "Crítica", "DW01": "Media", "BKP01": "Alta", "WAF01": "Alta", "SFTP01": "Media",
+              "DB01": "Crítica", "DB02": "Crítica", "DW01": "Media", "DW02": "Media", "BKP01": "Alta", "WAF01": "Alta", "SFTP01": "Media",
               "SIEM01": "Alta", "VULN01": "Media", "MON01": "Alta", "ITSM01": "Media", "INFRA01": "Alta", "FS01": "Media",
               "MGMT01": "Alta", "PBX01": "Media", "MAIL01": "Media", "NVR01": "Alta", "WLC01": "Media", "ACS01": "Media",
               "HONEY01": "Media", "PAW01": "Media", "PAW02": "Media"}
@@ -89,7 +89,7 @@ def tabla_vlans():
 
 
 def tabla_vms():
-    """Las 27 VM: nombre (nodo · IP), vCPU, RAM, disco, SO, función."""
+    """Las VM locales (28 con DW02): nombre (nodo · IP), vCPU, RAM, disco, SO, función."""
     filas = []
     for n, d in sorted(VMS.items(), key=lambda kv: (kv[1]["nodo"], kv[0])):
         ip = d.get("ip", "—")
