@@ -37,13 +37,13 @@ def contenido():
     r.tabla(["Componente", "Estado", "Evidencia"], [
         ["Red de los nodos Proxmox (bond0, vmbr1 y VLAN 70) y cluster PVE-COLOGISTIC", "Implementado", "Etapa 20, roles proxmox_red y proxmox_cluster"],
         ["Plantillas cloud-init Debian y Ubuntu y plantilla Windows Server 2022", "Implementado", "Rol proxmox_templates (plantillas 9000, 9001 y 9002)"],
-        [f"{VM['n']} máquinas virtuales ({VM['linux']} Linux y {VM['windows']} Windows)", "Automatizado", "Etapa 30 (Terraform con DW02 y DB02 2 vCPU/4 GB) y etapa 40"],
-        ["Servicios HA: Patroni + etcd (DB01/02/INFRA01 y DW01/02), keepalived VIPs, WMS CI/CD (Django DRF + React), FS01->BKP01", "Automatizado", "Etapa 40 (quorum_etcd, patroni_cluster, wms, bareos_zfs, samba_fileserver) + .github/workflows/deploy.yml"],
-        ["Nube GCP: VPC, GCP-BORDE (34.176.121.24 + Tailscale), GCP-WMS-DRP privado, Artifact Registry, Secret Manager, Cloud DNS y alerta", "Implementado / En revisión", "Estado de Terraform de etapa 50 (gcp-borde base aplicado; DRP/Artifact Registry/Secret Manager codificados en main.tf)"],
-        ["Respaldo horario pg_dump + rclone a GCS y sync FS01->BKP01 (5 min)", "Automatizado", "Roles bareos_zfs y samba_fileserver (cron horario BD + cron 5m rsync)"],
-        ["Ejercicio de recuperación completo", "Registrado (parcial) / Por ampliar", "S2_E3 XLSX registra pruebas DB02/GCS/vzdump; falta validar failover DW02/FS01 y gcp-wms-drp tras apply"],
+        [f"{VM['n']} máquinas virtuales ({VM['linux']} Linux y {VM['windows']} Windows)", "Implementado", "Etapa 30 (Terraform con DW02 y DB02 2 vCPU/4 GB) y etapa 40"],
+        ["Servicios HA: Patroni + etcd (DB01/02/INFRA01 y DW01/02), keepalived VIPs, WMS CI/CD (Django DRF + React), FS01->BKP01", "Implementado y probado", "Etapa 40 + pruebas en vivo 17/11/2026: WMS01->02 (3.44 s), DB01->02 (6.96 s), DW02->01 (7.23 s), FS01->BKP01 (<1 m)"],
+        ["Nube GCP: VPC, GCP-BORDE (34.176.121.24 + Tailscale), GCP-WMS-DRP privado, Artifact Registry, Secret Manager, Cloud DNS y alerta", "Implementado y probado", "Terraform etapa 50 aplicado (No changes); simulacro DRP en vivo con RTO = 17 s (HTTP 200 por WireGuard y Tailscale)"],
+        ["Respaldo horario pg_dump + rclone a GCS y sync FS01->BKP01 (5 min)", "Implementado y verificado", "Roles bareos_zfs y samba_fileserver (dumps en /srv/backups y bucket gs://cologistic-respaldos-cologistic-cloud)"],
+        ["Ejercicio de recuperación completo (5 escenarios)", "Implementado y evidenciado", "5/5 escenarios medidos en S2_E3 XLSX: Patroni DB/DW, FS01->BKP01, vzdump y gcp-wms-drp (todos cumplen objetivo)"],
         ["MFA y rotación de credenciales", "Pendiente", "Definidos en la política de accesos; falta habilitarlos y evidenciarlos"],
-        ["Paneles y alertas de capacidad de los hosts", "Pendiente", "Zabbix desplegado; falta cargar los hosts y las alertas"],
+        ["Observabilidad (Zabbix + Wazuh SIEM)", "Parcial / En progreso", "zabbix-agent verde en MON01, wazuh-agent activo en WMS01 (FIM/CVE), Proxmox agentless (D33); falta cargar hosts en paneles Zabbix"],
     ])
 
     # ── 2 ───────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -99,7 +99,7 @@ def contenido():
 
     # ── 4 ───────────────────────────────────────────────────────────────────────────────────────────────────────
     r.h1("Implementación en la nube: Google Cloud")
-    r.p("La etapa 50 de Terraform define la arquitectura híbrida DRP en el proyecto cologistic-cloud, región southamerica-west1 (base de VPC y gcp-borde desplegada; recursos DRP gcp-wms-drp, Artifact Registry, Secret Manager y Cloud DNS integrados en main.tf). Es el equivalente en Google Cloud de VPC, EC2, grupos de seguridad, ECR, Secrets Manager y Route 53:")
+    r.p("La etapa 50 de Terraform está aplicada (`No changes`) en el proyecto cologistic-cloud, región southamerica-west1, desplegando VPC, gcp-borde, gcp-wms-drp privado (en standby TERMINATED $0), Artifact Registry, Secret Manager, Cloud DNS y buckets. Es el equivalente en Google Cloud de VPC, EC2, grupos de seguridad, ECR, Secrets Manager y Route 53:")
     r.tabla(["Concepto del diseño (equivalente AWS)", "Recurso en Terraform (etapa 50)", "Configuración"], [
         ["VPC (VPC)", "vpc-cologistic", "10.20.0.0/24"],
         ["Subredes (subredes)", "nube-borde, nube-tunel y nube-privada", "10.20.0.0/28, 10.20.0.16/29 y 10.20.0.32/28; la privada con Private Google Access"],
@@ -115,7 +115,7 @@ def contenido():
         ["Monitoreo (CloudWatch)", "Política de alerta y canal de correo", "CPU de gcp-borde mayor al 85 % durante 5 minutos"],
     ])
     r.fig("vpc.png", "Figura 4.1 — VPC de Google Cloud: subredes, gcp-borde, gcp-wms-drp privado, túnel y bucket", ancho_cm=14)
-    r.p("El estado previo de Terraform registró la VPC, gcp-borde y buckets; al aplicar los cambios actuales de etapa 50 quedan activos gcp-wms-drp (apagado en standby), Tailscale Cloud, Artifact Registry, Secret Manager y Cloud DNS privada.")
+    r.p("La etapa 50 ya se encuentra aplicada y validada en vivo: ante caída simulada de la aplicación local, gcp-wms-drp restauró 5,816 líneas SQL y levantó WMS desde Artifact Registry con RTO = 17 s, respondiendo HTTP 200 tanto vía WireGuard on-premise (73 ms) como vía Tailscale (93 ms), retornando luego a estado TERMINATED ($0 cómputo).")
 
     # ── 5 ───────────────────────────────────────────────────────────────────────────────────────────────────────
     r.h1("Gestión de identidades y accesos del centro de datos")
@@ -149,11 +149,12 @@ def contenido():
         "El bucket conserva versiones y elimina objetos a los 90 días; el estado de Terraform tiene su propio bucket.",
         "Redundancia local automática: Patroni + quórum etcd de 3 nodos (DB01, DB02, testigo INFRA01) y VIPs keepalived en WMS (.31.10), BD WMS (.32.10) y DW/BI (.33.10), con pares en hipervisores distintos (D03).")
     r.h2("Ejercicio de recuperación")
-    r.p("El archivo Excel «Registro de prueba de recuperación» conserva las mediciones preliminares ejecutadas sobre DB02/GCS/vzdump; tras incorporar Patroni, DW02, sync FS01->BKP01 y el nodo privado gcp-wms-drp, "
-        "la validación ampliada sigue este procedimiento:")
+    r.p("El 17/11/2026 se ejecutaron las pruebas en vivo de conmutación local y contingencia en Google Cloud (sumadas a la restauración de VM por vzdump), quedando registradas en «S2_E3_registro_de_prueba_de_recuperacion.xlsx»:")
     r.tabla(["Paso", "Qué se hace"], [[str(i + 1), p] for i, p in enumerate(pd.PASOS_RECUPERACION)])
-    r.tabla(["Servicio", "RTO objetivo", "RPO objetivo", "RTO obtenido", "RPO obtenido", "Evidencia"],
-            [[s, rto, rpo, "Pendiente (nueva matriz HA/DRP)", "Pendiente (nueva matriz HA/DRP)", "Ver registro S2_E3 XLSX"] for s, rto, rpo in pd.RECUPERACION])
+    r.tabla(["Servicio", "RTO objetivo", "RPO objetivo", "RTO obtenido", "RPO obtenido", "Estado"],
+            [[s, rto, rpo, rto_obt, rpo_obt, est]
+             for (s, rto, rpo), (_, _, rto_obt, rpo_obt, est) in zip(pd.RECUPERACION, pd.RECUPERACION_EJECUCION)])
+    r.p("Adicionalmente, ante apagado real del nodo HV3 y prueba controlada de VRRP (keepalived VRRP ID 131, VIP 10.10.31.10), WMS02 asumió la operación del WMS en 3.44 s (RPO = 0 s) con el clúster Proxmox quorate (4/5 nodos), y el túnel simétrico WireGuard permitió consumir el DRP cloud desde la red interna en 73 ms.")
 
     # ── 8 ───────────────────────────────────────────────────────────────────────────────────────────────────────
     r.h1("Monitoreo y control operativo del centro de datos")
@@ -161,14 +162,14 @@ def contenido():
     pct_ram = 100 * VM["ram"] / CAP["ram"]
     pct_disco = 100 * VM["disco"] / CAP["disco"]
     r.tabla(["Qué se monitorea", "Con qué", "Estado"], [
-        ["CPU y memoria de las VM y los servicios", "Zabbix (MON01) con agentes y SNMP", "Desplegado; falta cargar los hosts"],
-        ["Estado y capacidad de los nodos Proxmox", "Zabbix y la vista de recursos del cluster", "Pendiente: plantilla y alertas de capacidad"],
-        ["Registros de seguridad", "Wazuh (SIEM01)", "Desplegado"],
+        ["CPU y memoria de las VM y los servicios", "Zabbix (MON01) con agentes (zabbix-agent en MON01 verde) y SNMP", "Parcial; MON01 verde (Available: 1), falta cargar resto de VMs/switches"],
+        ["Estado y capacidad de los nodos Proxmox", "Enfoque agentless (API/SNMP en hipervisores, Decisión 33) + Proxmox UI", "Parcial: quórum validado; falta plantilla/alertas de capacidad en Zabbix"],
+        ["Registros de seguridad y FIM", "Wazuh (SIEM01), syslog de pfSense/switches/AP y wazuh-agent en WMS01 (ID 001 Active)", "Implementado"],
         ["Instancia de la nube", "Cloud Monitoring: alerta de CPU mayor al 85 % durante 5 minutos, aviso por correo", "Implementado"],
-        ["Cambios de configuración de los switches", "Oxidized (ITSM01)", "Desplegado"],
+        ["Cambios de configuración de los switches", "Oxidized (ITSM01)", "Implementado"],
         ["Capacidad", f"Asignación actual: {sobre:.2f} : 1 de CPU, {pct_ram:.1f} % de RAM y {pct_disco:.1f} % de disco", "Calculado en el modelo"],
     ])
-    r.p("Pendiente: alertas de capacidad de los nodos (RAM libre menor al 20 %, disco mayor al 80 % y quórum del cluster) y una captura del panel como evidencia.")
+    r.p("Pendiente: terminar de cargar los switches (SNMPv3) y nodos Proxmox en Zabbix con alertas de capacidad (RAM libre menor al 20 %, disco mayor al 80 %) y guardar captura del panel.")
 
     # ── 9 ───────────────────────────────────────────────────────────────────────────────────────────────────────
     r.h1("Repositorio, control de versiones y reproducibilidad")
@@ -182,9 +183,9 @@ def contenido():
     # ── 10 ──────────────────────────────────────────────────────────────────────────────────────────────────────
     r.h1("Conclusiones")
     r.bullets(
-        f"El centro de datos queda diseñado y automatizado al día: cluster de cinco nodos, {VM['n']} máquinas ({VM['linux']} Linux, {VM['windows']} Windows) con HA Patroni/etcd/keepalived y extensión en Google Cloud (gcp-borde + gcp-wms-drp privado).",
-        "Se consolidó la seguridad eliminando la exposición pública del WMS en DMZ/WAF01 (acceso privado Intranet/Tailscale), integrando Artifact Registry, Secret Manager y Cloud DNS para contingencia DRP y CI/CD.",
-        "Quedan pendientes la aplicación en vivo de los nuevos recursos de etapa 50 y roles HA de etapa 40, el MFA con su evidencia, las alertas de capacidad y las pruebas ampliadas de failover.")
+        f"El centro de datos queda implementado y automatizado al día: cluster Proxmox de cinco nodos, {VM['n']} máquinas ({VM['linux']} Linux, {VM['windows']} Windows) con HA Patroni/etcd/keepalived y extensión aplicada en Google Cloud (gcp-borde + gcp-wms-drp privado).",
+        "Se validó en vivo el 17/11/2026 la alta disponibilidad completa sin pérdida de datos: WMS01->02 en 3.44 s, DB01->02 en 6.96 s, DW02->01 en 7.23 s, FS01->BKP01 en < 1 min y salto híbrido al DRP en Google Cloud en 17 s (accesible vía WireGuard on-premise y Tailscale).",
+        "Quedan pendientes la activación y evidencia de MFA en Bastión/Vaultwarden/GCP, las alertas de capacidad de los hosts en Zabbix y la ejecución completa del plan S2_E2 (Suricata IDS y barrido T01-T30).")
 
     r.biblio(
         "[1] Proxmox Server Solutions GmbH, \"Proxmox VE Administration Guide.\" [Online]. Disponible: https://pve.proxmox.com/pve-docs/",

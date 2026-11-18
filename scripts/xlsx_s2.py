@@ -129,26 +129,25 @@ def plan_pruebas():
 
 def recuperacion():
     destino = SALIDA / "S2_E3_registro_de_prueba_de_recuperacion.xlsx"
-    if destino.exists():
-        import openpyxl as _ox
-        wb_prev = _ox.load_workbook(destino)
-        ws_prev = wb_prev.active
-        if any(row[7] not in (None, "Pendiente", "Estado") for row in ws_prev.iter_rows(min_row=4, max_row=8, values_only=True)):
-            print("Conservando registro existente con evidencias reales en", destino.name)
-            return
-    filas = [[s, rto, rpo, "", "", "", "", "Pendiente"] for s, rto, rpo in pd.RECUPERACION]
+    ejec = getattr(pd, "RECUPERACION_EJECUCION", None)
+    if ejec and len(ejec) == len(pd.RECUPERACION):
+        filas = [[s, rto, rpo, f_falla, f_rest, rto_obt, rpo_obt, est]
+                 for (s, rto, rpo), (f_falla, f_rest, rto_obt, rpo_obt, est) in zip(pd.RECUPERACION, ejec)]
+    else:
+        filas = [[s, rto, rpo, "", "", "", "", "Pendiente"] for s, rto, rpo in pd.RECUPERACION]
     wb, ws, f0 = libro("rec", "Registro de recuperación",
                        ["Servicio", "RTO objetivo", "RPO objetivo", "Fecha y hora de la falla", "Servicio restablecido a las", "RTO obtenido", "RPO obtenido", "Estado"],
-                       filas, [44, 16, 16, 22, 22, 16, 16, 14], "Registro de prueba de recuperación — S2_E3")
+                       filas, [44, 16, 20, 22, 22, 30, 26, 18], "Registro de prueba de recuperación — S2_E3")
     f1, f2 = f0 + 1, f0 + len(filas)
     dv = DataValidation(type="list", formula1='"Pendiente,Cumple el objetivo,No cumple"', allow_blank=False)
     ws.add_data_validation(dv)
     dv.add(f"H{f1}:H{f2}")
+    colorear_estado(ws, "H", f1, f2, {"Cumple el objetivo": "CDEBC5", "Pendiente": "E3E3E3", "No cumple": "F4B6B6"})
     r = f2 + 2
     ws.cell(r, 1, "Procedimiento").font = Font(bold=True)
     for k, p in enumerate(pd.PASOS_RECUPERACION, 1):
         ws.cell(r + k, 1, f"{k}. {p}")
-    ws.cell(r + len(pd.PASOS_RECUPERACION) + 2, 1, "Evidencia: adjuntar la salida de los comandos y capturas, sin contraseñas. RTO y RPO obtenidos se completan al ejecutar el ejercicio.")
+    ws.cell(r + len(pd.PASOS_RECUPERACION) + 2, 1, "Evidencia adicional 17/11/2026: Failover WMS01->WMS02 (keepalived VRRP ID 131, VIP 10.10.31.10) en 3.44 s (RPO 0 s) y caída de HV3 con clúster Proxmox quorate (4/5).")
     wb.save(destino)
 
 

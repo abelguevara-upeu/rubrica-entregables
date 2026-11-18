@@ -43,9 +43,19 @@ PRUEBAS_RED = [
 RECUPERACION = [
     ("PostgreSQL HA (Patroni DB01 -> DB02, VIP 10.10.32.10)", "15 minutos", "Segundos"),
     ("PostgreSQL + WMS en nube privada DRP (gcp-wms-drp desde GCS)", "4 horas", "1 hora (dump horario)"),
-    ("DataWarehouse / Metabase HA (Patroni DW01 -> DW02, VIP 10.10.33.10)", "15 minutos", "Segundos"),
+    ("DataWarehouse / Metabase HA (Patroni DW02 -> DW01, VIP 10.10.33.10)", "15 minutos", "Segundos"),
     ("Archivos compartidos FS01 (contingencia Samba en BKP01 vía rsync)", "15 minutos", "5 minutos"),
     ("Una VM sin par (por ejemplo MON01) desde vzdump", "8 horas", "24 horas"),
+]
+
+# Resultados reales medidos en el laboratorio (S2_E3 XLSX y DOCX):
+# (fecha_hora_falla, restablecido_a_las, rto_obtenido, rpo_obtenido, estado)
+RECUPERACION_EJECUCION = [
+    ("2026-11-17 20:05:59", "2026-11-17 20:06:06", "6.96 s (Leader TL 6 + VIP .32.10)", "0 s (Lag = 0 MB)", "Cumple el objetivo"),
+    ("2026-11-17 20:26:34", "2026-11-17 20:26:51", "17 s (restore + Docker + HTTP 200)", "<= 1 h (5,816 líneas SQL GCS)", "Cumple el objetivo"),
+    ("2026-11-17 20:13:44", "2026-11-17 20:13:51", "7.23 s (Leader TL 11 + Metabase 200)", "0 s (Lag = 0 MB)", "Cumple el objetivo"),
+    ("2026-11-17 20:19:55", "2026-11-17 20:20:05", "< 1 min (recurso BKP01 activo)", "<= 5 min (cron rsync c/5 min)", "Cumple el objetivo"),
+    ("2026-11-04 09:00:00", "2026-11-04 10:15:20", "1 h 15 min 20 s (qmrestore BKP01)", "9 horas (Snapshot ZFS)", "Cumple el objetivo"),
 ]
 
 PASOS_RECUPERACION = [

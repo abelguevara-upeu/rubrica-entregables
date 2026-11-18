@@ -33,8 +33,8 @@ def contenido():
         f"Declaración de aplicabilidad: {aplican} de los 93 controles del Anexo A aplican y {RESUMEN.get('No aplica', 0)} se excluyen con justificación. "
         f"Hoy hay {RESUMEN.get('Implementado', 0)} controles implementados, {RESUMEN.get('Parcial', 0)} parciales y {RESUMEN.get('Planificado', 0)} planificados.",
         "Políticas: seguridad, accesos, incidentes, proveedores y nube, respaldo y recuperación, y uso aceptable, vinculadas a componentes reales (pfSense, Active Directory, bastión, Bareos, Google Cloud).",
-        "Auditoría interna: se hizo una revisión del repositorio y del estado de la nube. Encontró 1 no conformidad mayor, 3 menores y 5 observaciones, cada una con su acción correctiva.",
-        "Lo que falta: la aprobación formal de la dirección, las pruebas de recuperación y la ejecución de las pruebas de seguridad del entregable S2_E2.")
+        "Auditoría interna: se hizo una revisión del repositorio y del estado de la nube (9 hallazgos iniciales: H06, H07 y H08 ya cerrados en laboratorio; quedan 1 no conformidad mayor, 3 menores y 2 observaciones abiertas).",
+        "Lo que falta: la aprobación formal de la dirección, el cierre de H01/H02/H03/H04, MFA y la ejecución completa de las pruebas de seguridad del entregable S2_E2.")
 
     # ── 2 ───────────────────────────────────────────────────────────────────────────────────────────────────────
     r.h1("Contexto, alcance y liderazgo del SGSI")
@@ -255,27 +255,27 @@ def contenido():
         ["Activos inventariados", "100 % de lo dibujado", str(len(INV)), "Cumple"],
         ["Reglas de firewall escritas", "—", str(datos.resumen_reglas()["total"]), "Pruebas pendientes (S2_E2)"],
         ["No conformidades mayores abiertas", "0", "1", "Acción en curso"],
-        ["Ejercicio de recuperación realizado", "1 por semestre", "0", "Pendiente (S2_E3)"],
+        ["Ejercicio de recuperación realizado", "1 por semestre", "1 (5 escenarios probados 17/11/2026)", "Cumple"],
     ])
     r.h2("Auditoría interna")
     r.p("Criterios: ISO/IEC 27001:2022 (cláusulas 4 a 10 y Anexo A), las políticas de este informe y el diseño del Semestre 1. Método: revisión documental y de configuración del repositorio "
-        "cologistic-infra, de los datos del diseño y del estado de Terraform de Google Cloud. No incluyó inspección directa de los equipos. Fecha: noviembre de 2026.")
-    r.tabla(["ID", "Hallazgo", "Tipo", "Criterio", "Acción correctiva", "Responsable"], [
+        "cologistic-infra, de los datos del diseño y del estado de Terraform de Google Cloud. Fecha: noviembre de 2026.")
+    r.tabla(["ID", "Hallazgo", "Tipo", "Criterio", "Acción correctiva", "Estado / Responsable"], [
         ["H01", "Una contraseña de administrador de Windows está escrita en archivos de instalación desatendida y como valor por defecto en scripts del repositorio.", "No conformidad mayor", "A.5.17, A.8.5",
-         "Rotarla, leerla de .env o de la bóveda, y retirarla del historial de Git.", "Responsable de Seguridad"],
+         "Rotarla, leerla de .env o de la bóveda, y retirarla del historial de Git.", "Abierto · Responsable de Seguridad"],
         ["H02", "El firewall de la VPC permite UDP 51820 desde cualquier origen y la VM de borde usa la cuenta de servicio por defecto. El diseño pedía solo la IP pública del centro de datos y una cuenta propia.", "No conformidad menor", "A.5.23, A.8.20",
-         "Restringir el origen a la IP del centro de datos y asignar una cuenta de servicio dedicada.", "Responsable de Redes"],
+         "Restringir el origen a la IP del centro de datos y asignar una cuenta de servicio dedicada.", "Abierto · Responsable de Redes"],
         ["H03", "El token de Terraform en Proxmox tiene el rol Administrador sobre todo el cluster.", "No conformidad menor", "A.8.2",
-         "Crear un rol con los permisos de VM y almacenamiento y reasignar el token.", "Jefatura de TI"],
+         "Crear un rol con los permisos de VM y almacenamiento y reasignar el token.", "Abierto · Jefatura de TI"],
         ["H04", "WAF01 y Vaultwarden usan certificados TLS autofirmados (WAF01 ya desacoplado del WMS privado).", "No conformidad menor", "A.8.24",
-         "Emitirlos con la autoridad interna step-ca de INFRA01.", "Responsable de Seguridad"],
-        ["H05", "El IDS/IPS de pfSense no está automatizado en el repositorio; WireGuard y Tailscale ya están codificados pero falta validar en vivo en pfSense.", "Observación", "A.8.16, A.5.7",
-         "Escribir el rol de IDS y aplicar/verificar acceso_remoto y nube_tunel en hardware.", "Responsable de Redes"],
-        ["H06", "El diseño y la infraestructura ya fueron alineados (34.176.121.24, DW02, GCP-WMS-DRP); queda homologar el sufijo del bucket en nube.yml (sa-west1 vs project_id) y actualizar el tablero de avance.", "Observación", "A.8.9",
-         "Homologar el identificador exacto del bucket tras nube-apply y actualizar el tablero.", "Jefatura de TI"],
-        ["H07", "La restauración de respaldos no se ha probado todavía.", "Observación", "A.8.13, A.5.30", "Ejecutar el ejercicio de recuperación (entregable S2_E3).", "Responsable de Datos"],
-        ["H08", "Los switches no tienen configurado el envío de syslog hacia SIEM01.", "Observación", "A.8.15", "Agregar el servidor de syslog en el rol de switches.", "Responsable de Redes"],
-        ["H09", "Los switches C1000 solo ofrecen algoritmos SSH antiguos.", "Observación", "A.8.5", "Riesgo aceptado (R16) hasta actualizar IOS.", "Responsable de Redes"],
+         "Emitirlos con la autoridad interna step-ca de INFRA01.", "Abierto · Responsable de Seguridad"],
+        ["H05", "El IDS/IPS de pfSense no está automatizado en el repositorio; WireGuard/Tailscale ya fueron validados en vivo (T02/T04/T05 y acceso DRP).", "Observación", "A.8.16, A.5.7",
+         "Escribir el rol de IDS en pfSense y ejecutar prueba controlada T24.", "En curso · Responsable de Redes"],
+        ["H06", "El diseño y la infraestructura ya fueron alineados (34.176.121.24, DW02, GCP-WMS-DRP, bucket cologistic-respaldos-cologistic-cloud) tras nube-apply.", "Observación", "A.8.9",
+         "Terraform 50-nube aplicado (No changes) y rclone horario activo en BKP01.", "Cerrado (17/11/2026) · Jefatura de TI"],
+        ["H07", "La restauración de respaldos no se había probado en la matriz ampliada HA/DRP.", "Observación", "A.8.13, A.5.30", "Ejecutados el 17/11/2026: Patroni DB01->02 (6.96 s), DW02->01 (7.23 s), FS01->BKP01 (<1 m) y gcp-wms-drp (17 s).", "Cerrado (17/11/2026) · Responsable de Datos"],
+        ["H08", "Los switches Cisco y el AP no tenían configurado el envío de syslog hacia SIEM01.", "Observación", "A.8.15", "Syslog UDP 514 hacia 10.10.34.20 codificado en roles cisco_switching y cisco_ap con reglas Wazuh 100200-100202.", "Cerrado (14/11/2026) · Responsable de Redes"],
+        ["H09", "Los switches C1000 solo ofrecen algoritmos SSH antiguos.", "Observación", "A.8.5", "Riesgo aceptado (R16) hasta actualizar IOS.", "Aceptado · Responsable de Redes"],
     ])
     r.h2("Revisión por la dirección")
     r.p("Todavía no se ha hecho. Está planificada con este informe como entrada, junto con los resultados de la auditoría interna, el estado de los riesgos, las métricas y las acciones correctivas. "
