@@ -230,13 +230,25 @@ def portada(doc, clave):
     campos = {4: "ENTREGABLE", 5: datos_p["entregable"],
               7: "ORGANIZACIÓN", 8: "Co-Logistic S.A.C.",
               10: "MARCO DE REFERENCIA", 11: "ISO/IEC 27001:2022 · ISO/IEC 27002:2022",
-              13: "EQUIPO", 14: "Abel Guevara",
+              13: "EQUIPO",
               15: "DOCENTE DEL CURSO", 16: "[Grado y nombre del docente]"}
     for i, texto in campos.items():
         p = P(i)
         for r in list(p.runs)[1:]:
             r._r.getparent().remove(r._r)
         p.runs[0].text = texto
+    equipo_p = P(14)
+    for r in list(equipo_p.runs)[1:]:
+        r._r.getparent().remove(r._r)
+    lineas_equipo = [
+        "Jhack Ernesto Quispe Mamani · Abel Is-boset Guevara Huasco · David Edison Guerra Ordoñez",
+        "Alvaro Kenji Cuti Magaño · Javier Kevin Tello Rivas · Richard Josef Yaqui Inocente",
+        "Daniel Hernan Calderon Camacho · Joshua Alfonzo Javier Jurgen · Sebastian Chinchay Collachagua",
+    ]
+    equipo_p.runs[0].text = lineas_equipo[0]
+    for linea in lineas_equipo[1:]:
+        equipo_p.runs[0].add_break()
+        equipo_p.add_run(linea)
     fecha = P(18)
     for r in list(fecha.runs):
         fecha._p.remove(r._r)

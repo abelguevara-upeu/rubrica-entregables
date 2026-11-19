@@ -39,11 +39,11 @@ def contenido():
         ["Plantillas cloud-init Debian y Ubuntu y plantilla Windows Server 2022", "Implementado", "Rol proxmox_templates (plantillas 9000, 9001 y 9002)"],
         [f"{VM['n']} máquinas virtuales ({VM['linux']} Linux y {VM['windows']} Windows)", "Implementado", "Etapa 30 (Terraform con DW02 y DB02 2 vCPU/4 GB) y etapa 40"],
         ["Servicios HA: Patroni + etcd (DB01/02/INFRA01 y DW01/02), keepalived VIPs, WMS CI/CD (Django DRF + React), FS01->BKP01", "Implementado y probado", "Etapa 40 + pruebas en vivo 17/11/2026: WMS01->02 (3.44 s), DB01->02 (6.96 s), DW02->01 (7.23 s), FS01->BKP01 (<1 m)"],
-        ["Nube GCP: VPC, GCP-BORDE (34.176.121.24 + Tailscale), GCP-WMS-DRP privado, Artifact Registry, Secret Manager, Cloud DNS y alerta", "Implementado y probado", "Terraform etapa 50 aplicado (No changes); simulacro DRP en vivo con RTO = 17 s (HTTP 200 por WireGuard y Tailscale)"],
-        ["Respaldo horario pg_dump + rclone a GCS y sync FS01->BKP01 (5 min)", "Implementado y verificado", "Roles bareos_zfs y samba_fileserver (dumps en /srv/backups y bucket gs://cologistic-respaldos-cologistic-cloud)"],
-        ["Ejercicio de recuperación completo (5 escenarios)", "Implementado y evidenciado", "5/5 escenarios medidos en S2_E3 XLSX: Patroni DB/DW, FS01->BKP01, vzdump y gcp-wms-drp (todos cumplen objetivo)"],
-        ["MFA y rotación de credenciales", "Pendiente", "Definidos en la política de accesos; falta habilitarlos y evidenciarlos"],
-        ["Observabilidad (Zabbix + Wazuh SIEM)", "Parcial / En progreso", "zabbix-agent verde en MON01, wazuh-agent activo en WMS01 (FIM/CVE), Proxmox agentless (D33); falta cargar hosts en paneles Zabbix"],
+        ["Nube GCP: VPC, GCP-BORDE (34.176.121.24 + Tailscale), GCP-WMS-DRP privado, Artifact Registry, Secret Manager, Cloud DNS, Ops Agent + 4 alertas + Dashboard", "Implementado y probado", "Terraform etapa 50 aplicado; simulacro DRP RTO = 17 s; H02 cerrado (168.121.48.246/32 + sa-gcp-compute); 4 alertas activas (CPU/RAM/Disco/Uptime)"],
+        ["Respaldo horario pg_dump + rclone a GCS, sync FS01->BKP01 (5 min) y Oxidized Git (7/7 switches)", "Implementado y verificado", "Roles bareos_zfs, samba_fileserver e itsm_stack (Oxidized con remove_secret: true y auth HTTPS; dumps en /srv/backups y GCS)"],
+        ["Ejercicio de recuperación completo (5 escenarios) y ETL WMS -> DataWarehouse (cron HA 15 min)", "Implementado y evidenciado", "5/5 escenarios medidos en S2_E3 XLSX; ETL automatizado con usuario segregado etl_reader sobre réplica DB02 y Metabase BI conectado"],
+        ["MFA y control de acceso privilegiado (Guacamole PAM + Vaultwarden + GLPI LDAP)", "Implementado", "Guacamole con TOTP_ENABLED=true, LDAP AD (DC1), grabación de sesiones y 14 conexiones IaC; Vaultwarden Org Co-Logistic S.A.C.; GLPI LDAP + ticket INC-2026-001"],
+        ["Observabilidad (Zabbix + Wazuh SIEM + GCP Monitoring)", "Implementado y verificado", "Zabbix con 31 hosts (PVE-COLOGISTIC agentless 5 nodos Proxmox, 7 Cisco, 22 VMs); Wazuh 4.9.2 con 3 agentes activos (WMS01, DB01, DB02), regla Cisco 100200 y SIEM tuning 100121 (A.8.16)"],
     ])
 
     # ── 2 ───────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -56,8 +56,8 @@ def contenido():
         ["Cluster con un solo enlace de corosync", "Igual: por la VLAN 70", "Ninguno; queda como mejora una red dedicada."],
         ["Plantilla de cloud-init en cada nodo", "Plantillas 9000 (Debian), 9001 (Ubuntu) y 9002 (Windows Server 2022)", "Windows se prepara con una imagen base (golden image) porque no usa cloud-init nativo."],
         ["Google Cloud: VPC con tres subredes, VM de borde y buckets", "Desplegado según lo diseñado", "Nombres de bucket con el identificador del proyecto (únicos en todo Google Cloud)."],
-        ["Firewall de la VPC con UDP 51820 solo desde el centro de datos", "UDP 51820 desde cualquier origen", "Desviación pendiente de corregir (hallazgo H02 del SGSI)."],
-        ["Instancia de la nube con cuenta de servicio dedicada", "Cuenta de servicio por defecto de Compute Engine", "Desviación pendiente de corregir (hallazgo H02)."],
+        ["Firewall de la VPC con UDP 51820 solo desde el centro de datos", "UDP 51820 restringido a IP fija 168.121.48.246/32", "Cerrado el 19/11/2026 (hallazgo H02 cerrado vía Terraform)."],
+        ["Instancia de la nube con cuenta de servicio dedicada", "Cuenta dedicada sa-gcp-compute de mínimo privilegio en gcp-borde y gcp-wms-drp", "Cerrado el 19/11/2026 (hallazgo H02 cerrado vía Terraform)."],
     ])
 
     # ── 3 ───────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -123,8 +123,8 @@ def contenido():
         ["Proxmox VE", "Usuario root del Day-0 y usuario de servicio terraform@pve con un token de API", "Rol de mínimo privilegio TerraformProv aplicado en el cluster y rol proxmox_token (hallazgo H03 cerrado)."],
         ["Servidores y servicios", "Active Directory (DC1, DC2) y RADIUS (AAA01, AAA02); acceso de administración por el bastión (MGMT01, Apache Guacamole)", "Los usuarios no llegan a la VLAN de gestión."],
         ["Secretos", "Bóveda Vaultwarden en MGMT01 y archivo .env fuera de Git", "Contraseñas retiradas de XML desatendidos y scripts de servicio, inyectadas desde .env (hallazgo H01 cerrado)."],
-        ["Google Cloud", "Tres cuentas de servicio, cada una con un solo propósito; sa-respaldo con acceso solo al bucket de respaldos", "La VM de borde usa la cuenta por defecto; se asignará una dedicada (hallazgo H02)."],
-        ["MFA", "TOTP en el bastión, en la bóveda y en la consola de Google Cloud", "Definido; falta habilitarlo y guardar la evidencia."],
+        ["Google Cloud", "Cuatro cuentas de servicio acotadas (sa-respaldo, sa-terraform, sa-logs y sa-gcp-compute dedicada en ambas VMs)", "Hallazgo H02 cerrado el 19/11/2026 con permisos de mínimo privilegio."],
+        ["MFA", "TOTP habilitado en Apache Guacamole (TOTP_ENABLED=true + LDAP AD + grabación) y Vaultwarden; consola GCP", "Habilitado en bastión y bóveda; verificación 2FA en cuenta Google Cloud."],
         ["Rotación de credenciales", "Cada 90 días y ante la salida de una persona con acceso", "Definida; sin evidencia de la primera rotación."],
     ])
 
@@ -165,14 +165,14 @@ def contenido():
     pct_ram = 100 * VM["ram"] / CAP["ram"]
     pct_disco = 100 * VM["disco"] / CAP["disco"]
     r.tabla(["Qué se monitorea", "Con qué", "Estado"], [
-        ["CPU y memoria de las VM y los servicios", "Zabbix (MON01) con agentes (zabbix-agent en MON01 verde) y SNMP", "Parcial; MON01 verde (Available: 1), falta cargar resto de VMs/switches"],
-        ["Estado y capacidad de los nodos Proxmox", "Enfoque agentless (API/SNMP en hipervisores, Decisión 33) + Proxmox UI", "Parcial: quórum validado; falta plantilla/alertas de capacidad en Zabbix"],
-        ["Registros de seguridad y FIM", "Wazuh (SIEM01), syslog de pfSense/switches/AP y wazuh-agent en WMS01 (ID 001 Active)", "Implementado"],
-        ["Instancia de la nube", "Cloud Monitoring: alerta de CPU mayor al 85 % durante 5 minutos, aviso por correo", "Implementado"],
-        ["Cambios de configuración de los switches", "Oxidized (ITSM01)", "Implementado"],
+        ["CPU y memoria de las VM y los servicios", "Zabbix 7.0 (MON01) sincronizado vía JSON-RPC desde especificacion/: 22 VMs Linux + 7 switches Cisco", "Implementado (31 hosts registrados en Zabbix)"],
+        ["Estado y capacidad de los nodos Proxmox", "Enfoque agentless vía API Proxmox (host PVE-COLOGISTIC, Decisión 33) con umbrales 80 % RAM/disco", "Implementado (5 nodos físicos descubiertos automáticamente)"],
+        ["Registros de seguridad, FIM y vulnerabilidades", "Wazuh 4.9.2 (SIEM01), syslog de pfSense/switches/AP, 3 agentes activos (WMS01, DB01, DB02), regla Cisco 100200 y SIEM tuning 100121 (A.8.16)", "Implementado"],
+        ["Instancias y disponibilidad en la nube", "Google Cloud Monitoring + Ops Agent en gcp-borde: 4 alertas (CPU > 85 %, RAM > 85 %, Disco > 80 %, Uptime Check HTTP 60 s) y Dashboard híbrido", "Implementado"],
+        ["Cambios de configuración de los switches", "Oxidized (ITSM01) con respaldo Git de 7/7 switches Cisco, remove_secret: true (<secret hidden>) y autenticación web HTTPS", "Implementado"],
         ["Capacidad", f"Asignación actual: {sobre:.2f} : 1 de CPU, {pct_ram:.1f} % de RAM y {pct_disco:.1f} % de disco", "Calculado en el modelo"],
     ])
-    r.p("Pendiente: terminar de cargar los switches (SNMPv3) y nodos Proxmox en Zabbix con alertas de capacidad (RAM libre menor al 20 %, disco mayor al 80 %) y guardar captura del panel.")
+    r.p("Adicionalmente, GLPI (ITSM01) opera integrado con Active Directory (DC1, LDAP + RBAC) y registra el incidente de seguridad INC-2026-001 (alerta Suricata/Wazuh T24) junto a los 9 problemas H01–H09.")
 
     # ── 9 ───────────────────────────────────────────────────────────────────────────────────────────────────────
     r.h1("Repositorio, control de versiones y reproducibilidad")
@@ -188,7 +188,7 @@ def contenido():
     r.bullets(
         f"El centro de datos queda implementado y automatizado al día: cluster Proxmox de cinco nodos, {VM['n']} máquinas ({VM['linux']} Linux, {VM['windows']} Windows) con HA Patroni/etcd/keepalived y extensión aplicada en Google Cloud (gcp-borde + gcp-wms-drp privado).",
         "Se validó en vivo el 17/11/2026 la alta disponibilidad completa sin pérdida de datos: WMS01->02 en 3.44 s, DB01->02 en 6.96 s, DW02->01 en 7.23 s, FS01->BKP01 en < 1 min y salto híbrido al DRP en Google Cloud en 17 s (accesible vía WireGuard on-premise y Tailscale).",
-        "Se cerraron los hallazgos H01 (secretos parametrizados en unattend/scripts), H03 (rol de mínimo privilegio TerraformProv en Proxmox) y H05 (Suricata IDS + barrido S2_E2 con 26/30 pruebas aprobadas); quedan pendientes la evidencia de MFA y el alta de switches en paneles de Zabbix.")
+        "Se cerraron los hallazgos H01 (0 secretos en 470 archivos del repositorio), H02 (UDP 51820 restringido a 168.121.48.246/32 y sa-gcp-compute), H03 (rol TerraformProv en Proxmox), H05 (Suricata IDS + SIEM tuning 100121), H06, H07 y H08; además quedaron operativos Zabbix (31 hosts), Wazuh (3 agentes), Oxidized (7/7 switches sanitizados), Guacamole (TOTP + LDAP), GLPI (LDAP + INC-2026-001), ETL automatizado (etl_reader) y Cloud Monitoring (Ops Agent + 4 alertas + Dashboard).")
 
     r.biblio(
         "[1] Proxmox Server Solutions GmbH, \"Proxmox VE Administration Guide.\" [Online]. Disponible: https://pve.proxmox.com/pve-docs/",

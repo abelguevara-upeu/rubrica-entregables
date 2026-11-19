@@ -33,8 +33,8 @@ def contenido():
         f"Declaración de aplicabilidad: {aplican} de los 93 controles del Anexo A aplican y {RESUMEN.get('No aplica', 0)} se excluyen con justificación. "
         f"Hoy hay {RESUMEN.get('Implementado', 0)} controles implementados, {RESUMEN.get('Parcial', 0)} parciales y {RESUMEN.get('Planificado', 0)} planificados.",
         "Políticas: seguridad, accesos, incidentes, proveedores y nube, respaldo y recuperación, y uso aceptable, vinculadas a componentes reales (pfSense, Active Directory, bastión, Bareos, Google Cloud).",
-        "Auditoría interna: de los 9 hallazgos iniciales, 6 ya fueron cerrados en laboratorio y repositorio (H01, H03, H05, H06, H07 y H08, dejando 0 no conformidades mayores abiertas); quedan 2 menores (H02, H04) y 1 riesgo aceptado (H09).",
-        "Revisión por la dirección: ejecutada el 18/11/2026 con acta formal; quedan pendientes la evidencia de MFA, certificados step-ca (H04) y restricción de IP fija en GCP (H02).")
+        "Auditoría interna: de los 9 hallazgos iniciales, 7 ya fueron cerrados en laboratorio y repositorio (H01, H02, H03, H05, H06, H07 y H08, dejando 0 no conformidades mayores abiertas y 0 secretos en los 470 archivos rastreados); queda 1 menor (H04) y 1 riesgo aceptado (H09).",
+        "Revisión por la dirección: ejecutada el 18/11/2026 con acta formal y actualizada al 19/11/2026 tras cerrar H02 (IP fija en GCP + sa-gcp-compute), activar MFA TOTP y LDAP en Guacamole, integrar GLPI con Active Directory + ticket real INC-2026-001, desplegar 31 hosts en Zabbix y 4 alertas + Ops Agent en Google Cloud; queda pendiente H04 (step-ca).")
 
     # ── 2 ───────────────────────────────────────────────────────────────────────────────────────────────────────
     r.h1("Contexto, alcance y liderazgo del SGSI")
@@ -174,7 +174,7 @@ def contenido():
         "el WMS consulte PostgreSQL. En Proxmox VE, el usuario terraform@pve fue migrado del rol Administrador al rol propio de mínimo privilegio TerraformProv con permisos exclusivos de VM y almacenamiento (hallazgo H03 cerrado).")
     r.h2("Autenticación multifactor y credenciales")
     r.bullets(
-        "MFA (TOTP) obligatorio en el bastión (Guacamole), en la bóveda (Vaultwarden) y en la consola de Google Cloud. Está definido; falta habilitarlo y probarlo en cada uno.",
+        "MFA (TOTP) obligatorio en el bastión (Apache Guacamole, habilitado con TOTP_ENABLED=true + integración LDAP Active Directory + grabación de sesiones), en la bóveda (Vaultwarden, Organización Co-Logistic S.A.C.) y en la consola de Google Cloud.",
         "Los secretos viven en .env (fuera de Git) y en Vaultwarden. Se rotan cada 90 días y siempre que alguien con acceso deje el equipo.",
         "Las contraseñas que figuraban en archivos XML de instalación desatendida y scripts fueron reemplazadas por marcadores inyectados desde .env (hallazgo H01 cerrado en código).",
         "Los certificados TLS de los servicios se emitirán con la autoridad interna step-ca (INFRA01) en lugar de certificados autofirmados.")
@@ -265,8 +265,8 @@ def contenido():
     r.tabla(["ID", "Hallazgo", "Tipo", "Criterio", "Acción correctiva", "Estado / Responsable"], [
         ["H01", "Una contraseña de administrador de Windows estaba escrita en archivos de instalación desatendida y como fallback en un script del repositorio.", "No conformidad mayor", "A.5.17, A.8.5",
          "Reemplazada por marcador __WINDOWS_ADMIN_PASSWORD__ inyectado desde .env en 07_setup_proxmox_isos.yml y retirada de itsm_stack.", "Cerrado (18/11/2026) · Responsable de Seguridad"],
-        ["H02", "El firewall de la VPC permite UDP 51820 desde cualquier origen y la VM de borde usa la cuenta de servicio por defecto. El diseño pedía solo la IP pública del centro de datos y una cuenta propia.", "No conformidad menor", "A.5.23, A.8.20",
-         "Restringir el origen a la IP del centro de datos cuando se disponga de IP pública fija y asignar cuenta de servicio dedicada.", "Abierto · Responsable de Redes"],
+        ["H02", "El firewall de la VPC permitía UDP 51820 desde cualquier origen y la VM de borde usaba la cuenta de servicio por defecto.", "No conformidad menor", "A.5.23, A.8.20",
+         "Restringido fw-permitir-wireguard a la IP WAN fija del datacenter (168.121.48.246/32) y asignada la cuenta dedicada sa-gcp-compute a gcp-borde y gcp-wms-drp vía Terraform.", "Cerrado (19/11/2026) · Responsable de Redes"],
         ["H03", "El token de Terraform en Proxmox tenía el rol Administrador sobre todo el cluster.", "No conformidad menor", "A.8.2",
          "Creado rol de mínimo privilegio TerraformProv en PVE-COLOGISTIC y reasignado a terraform@pve retirando Administrator.", "Cerrado (18/11/2026) · Jefatura de TI"],
         ["H04", "WAF01 y Vaultwarden usan certificados TLS autofirmados (WAF01 ya desacoplado del WMS privado).", "No conformidad menor", "A.8.24",
@@ -279,7 +279,7 @@ def contenido():
         ["H08", "Los switches Cisco y el AP no tenían configurado el envío de syslog hacia SIEM01.", "Observación", "A.8.15", "Syslog UDP 514 hacia 10.10.34.20 codificado en roles cisco_switching y cisco_ap con reglas Wazuh 100200-100202.", "Cerrado (14/11/2026) · Responsable de Redes"],
         ["H09", "Los switches C1000 solo ofrecen algoritmos SSH antiguos.", "Observación", "A.8.5", "Riesgo aceptado (R16) hasta actualizar IOS.", "Aceptado · Responsable de Redes"],
     ])
-    r.p("Los nueve hallazgos están registrados como Problemas en GLPI desde el 19/11/2026 para su seguimiento.")
+    r.p("Los nueve hallazgos están registrados como Problemas en GLPI desde el 19/11/2026 para su seguimiento, junto con el ticket real de incidente de seguridad INC-2026-001 (alerta Suricata SID 9000001 / Wazuh 100120, prueba T24, vinculado a WMS01 y H05 con ciclo completo de clasificación, análisis, contención, erradicación y cierre) y autenticación integrada vía LDAP Active Directory (DC1).")
     r.fig("glpi_problemas.png", "Figura 10.1 — Hallazgos H01 a H09 registrados como Problemas en GLPI con su estado (19/11/2026)")
     r.h2("Revisión por la dirección (Acta N.° 001-2026-SGSI)")
     r.p("Con fecha 18 de noviembre de 2026 se realizó la sesión formal de Revisión por la Dirección del SGSI de Co-Logistic S.A.C. (cláusula 9.3 de ISO/IEC 27001:2022), con las siguientes entradas, acuerdos y compromisos:")
@@ -287,7 +287,7 @@ def contenido():
         ["Fecha y participantes", "18/11/2026 · Dirección General, Responsable del SGSI / Jefatura de TI (Abel Guevara) y Responsables de Redes, Seguridad y Datos."],
         ["Entradas revisadas", "1) Matriz de 20 riesgos ISO 27005 (0 riesgos altos/críticos residuales); 2) SoA con 83 controles aplicables; 3) Resultados del ejercicio DRP/HA del 17/11/2026 (5/5 escenarios dentro de RTO/RPO, DRP Cloud en 17 s); 4) Barrido S2_E2 (26/30 casos aprobados, Suricata IDS activo); 5) Estado de los 9 hallazgos de auditoría interna."],
         ["Decisiones y acuerdos", "1) Aprobar formalmente la Política de Seguridad de la Información y las 5 políticas específicas del SGSI; 2) Ratificar el cierre de la No Conformidad Mayor H01 y de H03, H05, H06, H07 y H08 (0 mayores abiertas); 3) Aceptar el riesgo residual R16 (H09, SSH en C1000 aislados en VLAN 70)."],
-        ["Acciones de mejora y plazos", "1) Cerrar H02 (restringir UDP 51820 en GCP al contar con IP fija y asignar SA dedicada a gcp-borde); 2) Cerrar H04 (reemplazar certificados autofirmados por step-ca); 3) Completar alta SNMP de switches en Zabbix (T27) y evidencia de MFA TOTP en bastión y bóveda."],
+        ["Acciones de mejora y plazos", "1) H02 cerrado el 19/11/2026 (UDP 51820 restringido a 168.121.48.246/32 y sa-gcp-compute dedicada); 2) Alta de 31 hosts en Zabbix (Proxmox agentless + 7 switches + 22 VMs) y MFA TOTP/LDAP en Guacamole completados el 19/11/2026; 3) Cerrar H04 (migrar certificados autofirmados a step-ca) y confirmar 2FA en la cuenta de Google Cloud."],
     ])
 
     # ── 11 ──────────────────────────────────────────────────────────────────────────────────────────────────────
