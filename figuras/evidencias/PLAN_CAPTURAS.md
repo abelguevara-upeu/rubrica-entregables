@@ -66,6 +66,7 @@
 | `[x]` | `s2_e1_sec07_03_guacamole_14_conexiones.png` | `https://guacamole.cologistic.net` | Lista agrupada de **14 conexiones IaC** (Cisco, Proxmox, DCs) | Catálogo de 14 conexiones privilegiadas aprovisionadas como código en Guacamole |
 | `[x]` | `s2_e1_sec07_04_vaultwarden_org_colecciones.png` | `https://vault.cologistic.net` | Organización **`Co-Logistic S.A.C.`** y **8 colecciones** *(SIN abrir contraseñas)* | Organización `Co-Logistic S.A.C.` y 8 colecciones segregadas en Vaultwarden |
 | `[x]` | `s2_e1_sec07_05_vaultwarden_miembros_2fa.png` | `https://vault.cologistic.net` | **Miembros** o estado de **2FA activo** *(SIN códigos de recuperación)* | Gobernanza de miembros y autenticación 2FA en Vaultwarden |
+| `[x]` | `s2_e1_sec07_06_vaultwarden_items_organizacion.png` | `https://vault.cologistic.net` | **All vaults** con la columna **Owner** de cada credencial *(SIN abrir contraseñas)* | Credenciales de TI asignadas a la Organización `Co-Logistic S.A.C.` y sus colecciones en Vaultwarden |
 
 ### Sección 8 (`sec08`): Gestión de incidentes, continuidad y recuperación
 | Estado | Archivo | URL | Vista exacta | Pie de figura sugerido |

@@ -22,7 +22,10 @@ from docx.oxml.ns import qn
 from docx.shared import Cm
 from docx.text.paragraph import Paragraph
 
+from PIL import Image
+
 import comun
+import evidencias
 
 RAIZ = Path(__file__).resolve().parents[1]
 UPEU = RAIZ / "templates/Plantilla Plan de Auditoria de Sistemas.docx"
@@ -256,7 +259,58 @@ def portada(doc, clave):
     fecha.add_run("Noviembre 2026")
 
 
-def volcar(doc, eventos, pies):
+def numerar_anexo(eventos, capturas):
+    """Numera las capturas del Anexo B (B.1, B.2…) y agrega, al final de cada sección que tiene evidencia, una línea que las cita.
+    No cambia ningún contenido existente: solo inserta ese párrafo antes del título siguiente (o de la bibliografía).
+    Devuelve (eventos, anexo) con anexo = [(n_seccion, titulo_seccion, [(n_figura, png, pie)])]."""
+    titulos = [ev[1] for ev in eventos if ev[0] == "h1"]
+    grupos, n = {}, 0
+    for sec, _, png, pie in capturas:
+        n += 1
+        grupos.setdefault(sec, []).append((n, png, pie))
+    anexo = [(sec, titulos[sec - 1] if sec <= len(titulos) else "", figs) for sec, figs in sorted(grupos.items())]
+
+    def cita(sec):
+        figs = grupos.get(sec)
+        if not figs:
+            return None
+        rango = f"Figura B.{figs[0][0]}" if len(figs) == 1 else f"Figuras B.{figs[0][0]} a B.{figs[-1][0]}"
+        return ("p", f"Evidencia de la implementación en vivo: ver Anexo B, {rango}.")
+
+    salida, sec = [], 0
+    for ev in eventos:
+        if ev[0] in ("h1", "biblio") and sec and cita(sec):
+            salida.append(cita(sec))
+        if ev[0] == "h1":
+            sec += 1
+        salida.append(ev)
+    return salida, anexo
+
+
+def escribir_anexo_b(doc, despues_de, anexo):
+    """Anexo B tras el Anexo A, con los estilos de la plantilla: «Texto del Plan» para el texto y los grupos, «Caption» para los pies."""
+    ancla = despues_de._p.getnext()
+    if ancla is None:
+        ancla = OxmlElement("w:p")
+        despues_de._p.addnext(ancla)
+    intro = nuevo_parrafo(doc, ancla, "Texto del Plan")
+    intro.add_run("Anexo B. Evidencias de la implementación.").bold = True
+    intro.add_run(" Capturas de las consolas de administración tomadas en solo lectura el 19/11/2026, sin contraseñas, tokens ni códigos de "
+                  "recuperación visibles. Se agrupan según la sección del informe que respaldan.")
+    for sec, titulo, figs in anexo:
+        g = nuevo_parrafo(doc, ancla, "Texto del Plan")
+        g.add_run(f"Sección {sec}. {titulo}").bold = True
+        g.paragraph_format.keep_with_next = True
+        for n, png, pie in figs:
+            ancho, alto = Image.open(comun.FIGURAS / png).size
+            p = nuevo_parrafo(doc, ancla, "Texto del Plan")
+            p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            p.paragraph_format.keep_with_next = True
+            p.add_run().add_picture(str(comun.FIGURAS / png), width=Cm(min(ANCHO_TEXTO_CM, 19.0 * ancho / alto)))
+            nuevo_parrafo(doc, ancla, "Caption", f"Figura B.{n} — {pie}")
+
+
+def volcar(doc, eventos, pies, anexo=None):
     cuerpo = list(doc.element.body)
     primero = next(i for i, e in enumerate(cuerpo) if e.tag == qn("w:p") and Paragraph(e, doc._body).style.name == "Heading 1")
     biblio_titulo = next(i for i, e in enumerate(cuerpo) if e.tag == qn("w:p") and Paragraph(e, doc._body).text.strip() == "BIBLIOGRAFÍA")
@@ -303,6 +357,8 @@ def volcar(doc, eventos, pies):
     estilo_parrafo(nota, "Texto del Plan")
     nota.add_run("Anexo A. Datos de origen: repositorio cologistic-nettop-datos (diseño) y cologistic-infra (especificación generada, reglas de pfSense y visor topologia.html), "
                  "de donde salen las tablas y figuras de este informe.")
+    if anexo:
+        escribir_anexo_b(doc, nota, anexo)
 
 
 def actualizar_indice(doc):
@@ -322,14 +378,19 @@ def generar(clave, modulo_nombre, salida_nombre):
         eventos, pies = r.eventos, r.pies
     else:                                               # entregables S1: se captura lo que escribirían sobre la plantilla de la rúbrica
         eventos, pies = capturar(modulo)
+    anexo = None
+    capturas = evidencias.capturas(clave)              # solo los S2 tienen capturas en figuras/evidencias/
+    if capturas:
+        eventos, anexo = numerar_anexo(eventos, capturas)
     doc = docx.Document(str(plantilla_corregida()))
     portada(doc, clave)
-    volcar(doc, eventos, pies)
+    volcar(doc, eventos, pies, anexo)
     actualizar_indice(doc)
     SALIDA.mkdir(exist_ok=True)
     ruta = SALIDA / salida_nombre
     doc.save(str(ruta))
-    print(f"Guardado: {ruta}  ({sum(e[0] == 'tabla' for e in eventos)} tablas, {sum(e[0] == 'fig' for e in eventos)} figuras)")
+    extra = f", {sum(len(f) for _, _, f in anexo)} en el Anexo B" if anexo else ""
+    print(f"Guardado: {ruta}  ({sum(e[0] == 'tabla' for e in eventos)} tablas, {sum(e[0] == 'fig' for e in eventos)} figuras{extra})")
 
 
 if __name__ == "__main__":
