@@ -96,6 +96,7 @@ def contenido():
     r.tabla(["ID", "Activo", "Tipo", "Propietario", "Crit.", "C-I-D"],
             [[a[0], a[1], a[2], a[3], a[5], f"{a[6]}-{a[7]}-{a[8]}"] for a in INV])
     r.p("El inventario completo, con la ubicación y la clasificación de cada activo, se entrega también en el archivo Excel «Inventario de activos».")
+    r.p("El mismo inventario se cargó en GLPI el 19/11/2026 (30 ordenadores, 11 equipos de red y 6 aplicativos de nube), con propietario, ubicación, criticidad y C-I-D en cada ficha. PAW01, PAW02 y ACS01 no se cargaron porque aún no existen en Proxmox.")
 
     # ── 4 ───────────────────────────────────────────────────────────────────────────────────────────────────────
     r.h1("Evaluación y tratamiento de riesgos (ISO/IEC 27005)")
@@ -277,6 +278,7 @@ def contenido():
         ["H08", "Los switches Cisco y el AP no tenían configurado el envío de syslog hacia SIEM01.", "Observación", "A.8.15", "Syslog UDP 514 hacia 10.10.34.20 codificado en roles cisco_switching y cisco_ap con reglas Wazuh 100200-100202.", "Cerrado (14/11/2026) · Responsable de Redes"],
         ["H09", "Los switches C1000 solo ofrecen algoritmos SSH antiguos.", "Observación", "A.8.5", "Riesgo aceptado (R16) hasta actualizar IOS.", "Aceptado · Responsable de Redes"],
     ])
+    r.p("Los nueve hallazgos están registrados como Problemas en GLPI desde el 19/11/2026 para su seguimiento.")
     r.h2("Revisión por la dirección (Acta N.° 001-2026-SGSI)")
     r.p("Con fecha 18 de noviembre de 2026 se realizó la sesión formal de Revisión por la Dirección del SGSI de Co-Logistic S.A.C. (cláusula 9.3 de ISO/IEC 27001:2022), con las siguientes entradas, acuerdos y compromisos:")
     r.tabla(["Campo del acta", "Detalle registrado"], [
