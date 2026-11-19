@@ -26,6 +26,7 @@ from PIL import Image
 
 import comun
 import evidencias
+import evidencias_datos
 
 RAIZ = Path(__file__).resolve().parents[1]
 UPEU = RAIZ / "templates/Plantilla Plan de Auditoria de Sistemas.docx"
@@ -271,16 +272,18 @@ def numerar_anexo(eventos, capturas):
     anexo = [(sec, titulos[sec - 1] if sec <= len(titulos) else "", figs) for sec, figs in sorted(grupos.items())]
 
     def cita(sec):
+        """El párrafo que presenta la evidencia de la sección y una viñeta por figura: qué muestra y qué demuestra."""
         figs = grupos.get(sec)
         if not figs:
-            return None
-        rango = f"Figura B.{figs[0][0]}" if len(figs) == 1 else f"Figuras B.{figs[0][0]} a B.{figs[-1][0]}"
-        return ("p", f"Evidencia de la implementación en vivo: ver Anexo B, {rango}.")
+            return []
+        rango = f"la Figura B.{figs[0][0]}" if len(figs) == 1 else f"las Figuras B.{figs[0][0]} a B.{figs[-1][0]}"
+        return ([("p", f"Lo descrito en esta sección se verificó en vivo; {rango} del Anexo B lo muestran:")]
+                + [("bul", f"Figura B.{n}: {evidencias_datos.EXPLICA.get(png.split('/')[-1], pie)}") for n, png, pie in figs])
 
     salida, sec = [], 0
     for ev in eventos:
-        if ev[0] in ("h1", "biblio") and sec and cita(sec):
-            salida.append(cita(sec))
+        if ev[0] in ("h1", "biblio") and sec:
+            salida.extend(cita(sec))
         if ev[0] == "h1":
             sec += 1
         salida.append(ev)
