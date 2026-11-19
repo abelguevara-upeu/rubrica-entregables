@@ -139,6 +139,8 @@ def contenido():
               ["Cuentas de servicio", "Google Cloud IAM", "IAM", "etapa 50: main.tf"]]
     r.tabla(["Activo", "Ubicación", "Sistema", "Evidencia de configuración"], filas)
     r.p("Desde el 19/11/2026 este inventario también está cargado en GLPI (ITSM01, glpi.cologistic.net): 30 ordenadores (5 servidores Proxmox y 25 máquinas virtuales), 11 equipos de red y 6 servicios de Google Cloud como aplicativos, con 6 grupos responsables y 3 ubicaciones. PAW01, PAW02 y ACS01 constan en el diseño pero aún no existen en Proxmox, por lo que no se cargaron; esa diferencia queda pendiente.")
+    r.fig("glpi_ordenadores.png", "Figura 6.1 — Ordenadores del inventario final en GLPI (servidores Proxmox y máquinas virtuales)")
+    r.fig("glpi_red.png", "Figura 6.2 — Equipos de red del inventario final en GLPI (router, firewalls, switches y AP)")
 
     # ── 7 ───────────────────────────────────────────────────────────────────────────────────────────────────────
     r.h1("Continuidad: respaldo, restauración y recuperación probada")
