@@ -39,6 +39,41 @@ PRUEBAS_RED = [
     ("T30", "Acceso remoto resiliente vía Tailscale Cloud (gcp-borde)", "Subnet Router 10.20.0.0/24 en gcp-borde y 10.10.0.0/16 en pfSense", "Simular caída de pfSense/ISP local y acceder por Tailscale a 10.20.0.34", "Conectividad SSH/HTTPS hacia gcp-wms-drp operativa sin routers locales", "Positiva · nube DRP"),
 ]
 
+# Resultados reales ejecutados y verificados en el laboratorio (2026-11-17 / 2026-11-18):
+# Mapeo id -> (resultado_obtenido, evidencia, estado)
+RESULTADOS_PRUEBAS_RED = {
+    "T01": ("Túnel wg0 activo en FW-MAIN (peer 34.176.121.24:51820, handshake 56 s, 27.09 KiB rx / 109.12 KiB tx) y ping a 10.20.0.17 en 32.8 ms (0 % pérdida)", "fw-main: wg show wg0 + ping 10.20.0.17", "Aprobada"),
+    "T02": ("Desde INFRA01 (10.10.30.15): ping a 10.20.0.4 en 33.4 ms; traceroute -I -n muestra salto 1 en 10.10.30.2 y salto 3 en 10.20.0.4 (33.58 ms)", "infra01: traceroute -I -n 10.20.0.4 + ping", "Aprobada"),
+    "T03": ("tcpdump en WAN igb0 (udp port 51820) durante ping a 10.20.0.17: solo datagramas UDP 51820 cifrados (len 128), sin ICMP en claro", "fw-main: tcpdump -ni igb0 udp port 51820", "Aprobada"),
+    "T04": ("Desde MGMT01 (10.10.70.5), conexión SSH a 10.20.0.4:22 permitida con banner SSH-2.0-OpenSSH_9.2p1 Debian-2+deb12u10", "mgmt01 -> 10.20.0.4:22 TCP/SSH banner", "Aprobada"),
+    "T05": ("Desde VLAN 30 INFRA01 (10.10.30.15), conexión TCP a 10.20.0.4:22 bloqueada por firewall (TimeoutError: timed out)", "infra01 -> 10.20.0.4:22 TimeoutError", "Aprobada"),
+    "T06": ("Bloqueada por hallazgo H02 abierto: gcloud confirma fw-permitir-wireguard con sourceRanges 0.0.0.0/0 (IP pública dinámica del laboratorio)", "gcloud firewall-rules describe (0.0.0.0/0)", "Bloqueada"),
+    "T07": ("Consulta HTTPS a WAF01 (10.10.80.10) devuelve HTTP 403 y pfctl -sn no publica NAT 443 hacia el WMS privado (Decisión D19)", "curl -ks https://10.10.80.10/ -> 403 + pfctl -sn", "Aprobada"),
+    "T08": ("SFTP01 (10.10.80.20:22) responde banner SSH-2.0-OpenSSH_9.2p1; NAT WAN->SRV_B2B y ChrootDirectory /srv/sftp/%u verificados", "sftp01:22 banner + sshd_config + pfctl -sn", "Aprobada"),
+    "T09": ("En FW-MAIN (pfctl -sn / -sr), WAN igb0/igb1 solo redirige TCP 22 hacia SFTP01 y deniega todo ingreso directo a subredes internas", "fw-main: pfctl -sn / pfctl -sr WAN", "Aprobada"),
+    "T10": ("Desde WAF01 (10.10.80.10), conexión TCP a 10.10.32.10:5432 bloqueada (TimeoutError); regla block drop en em0.80 -> <SRV_BD> activa", "waf01 -> 10.10.32.10:5432 TimeoutError + pfctl", "Aprobada"),
+    "T11": ("Desde WAF01 (10.10.80.10), conexión SSH a 10.10.70.5:22 (MGMT01) bloqueada por firewall (TimeoutError: timed out)", "waf01 -> 10.10.70.5:22 TimeoutError", "Aprobada"),
+    "T12": ("Desde WAF01 (10.10.80.10), conexión HTTPS a 10.10.31.10:443 (WMS-VIP) bloqueada por firewall (TimeoutError: timed out)", "waf01 -> 10.10.31.10:443 TimeoutError", "Aprobada"),
+    "T13": ("Consulta https://10.10.31.10/api/health/ vía Tailscale responde HTTP 200 JSON {\"status\": \"ok\", \"service\": \"wms-api\"}", "curl -ks https://10.10.31.10/api/health/ -> 200", "Aprobada"),
+    "T14": ("Regla activa en FW-MAIN pfctl -sr: block drop in quick on em0.20 inet from <OPT3__NETWORK> to <SRV_BD> (ridentifier 1792346255)", "fw-main: pfctl -sr em0.20 (ridentifier 1792346255)", "Aprobada"),
+    "T15": ("Desde WMS01 (10.10.31.11), conexión TCP a la VIP PostgreSQL 10.10.32.10:5432 permitida (PERMITIDO_OK)", "wms01 -> 10.10.32.10:5432 TCP connect OK", "Aprobada"),
+    "T16": ("Regla activa en FW-MAIN pfctl -sr: block drop in quick on em0.10 inet from <OPT2__NETWORK> to <LAN__NETWORK> (ridentifier 1792346246)", "fw-main: pfctl -sr em0.10 (ridentifier 1792346246)", "Aprobada"),
+    "T17": ("Regla activa en FW-MAIN pfctl -sr: block drop in quick on em0.10 inet from <OPT2__NETWORK> to <OPT17__NETWORK> (ridentifier 1792346247)", "fw-main: pfctl -sr em0.10 (ridentifier 1792346247)", "Aprobada"),
+    "T18": ("Regla activa en FW-MAIN pfctl -sr: block drop in quick on em0.60 inet from <OPT12__NETWORK> to <NET_INTERNAS> + salida HTTP/HTTPS", "fw-main: pfctl -sr em0.60", "Aprobada"),
+    "T19": ("Desde NVR01 (10.10.40.10, VLAN 40), intento TCP SMB a 10.10.30.16:445 bloqueado por firewall (TimeoutError: timed out)", "nvr01 -> 10.10.30.16:445 TimeoutError", "Aprobada"),
+    "T20": ("Desde HONEY01 (10.10.130.10), ping 10.10.30.11 y TCP 10.10.32.10:5432 bloqueados; pfctl em0.130 solo permite syslog/agente a SIEM01", "honey01 -> internos bloqueado + pfctl em0.130", "Aprobada"),
+    "T21": ("Desde MGMT01 (10.10.70.5), conexión SSH a DB01 (10.10.32.11:22) permitida con banner SSH-2.0-OpenSSH_9.2p1 Debian-2+d", "mgmt01 -> 10.10.32.11:22 TCP/SSH banner OK", "Aprobada"),
+    "T22": ("Demotion CARP en FW-MAIN (sysctl demotion=240): FW-BACKUP asumió MASTER en vhid 70 (10.10.70.1) sin pérdida SSH/Tailscale y failback exitoso", "fw-main/fw-backup CARP demotion failover/failback", "Aprobada"),
+    "T23": ("Intento FTP desde 10.10.30.15 a HONEY01:21 registrado por OpenCanary (logtype 2000) y alertado en SIEM01 (alerts.json regla 100100, nivel 10)", "siem01 alerts.json id 100100 + opencanary.log", "Aprobada"),
+    "T24": ("Suricata 8.0.7 activo en em0.31 (H05 cerrado); barrido TCP de 20 puertos a 10.10.31.11 generó SID 9000001 y alerta en SIEM01 (regla 100120, nivel 8; sin nmap instalado, ejecutado con Python)", "fw-main suricata alerts.log + siem01 alerts.json 100120", "Aprobada"),
+    "T25": ("Logs filterlog UDP 514 desde FW-MAIN/FW-BACKUP decodificados (pfsense-filterlog-nohost) y alertados en SIEM01 (alerts.json regla 100110, nivel 5)", "siem01 tcpdump udp/514 + alerts.json id 100110", "Aprobada"),
+    "T26": ("Reglas Cisco 100200-100202 cargadas en SIEM01 y plantilla syslog en repo, pero sin tramas desde SW1-CORE1 (10.10.70.11) ni prueba de puerto (H08)", "siem01 local_rules.xml + tcpdump sin eventos switch", "Pendiente"),
+    "T27": ("Zabbix Docker operativo en MON01 y regla 161/udp presente, pero probe SNMP a 10.10.70.11:161 agotó tiempo y BD Zabbix solo contiene Zabbix server", "mon01 docker ps / psql hosts + UDP 161 timeout", "Pendiente"),
+    "T28": ("Política Cloud Monitoring de CPU > 85 % verificada activa (enabled=True) vía API GCP; queda pendiente ejecutar stress de 6 min para probar el correo", "GCP Monitoring API enabled=True (sin stress live)", "Pendiente"),
+    "T29": ("Parada de patroni en DB01 (10.10.32.11): DB02 asumió Leader (TL 6) y VIP 10.10.32.10 en 6.96 s (RPO = 0 s); DB01 reintegrado con Lag = 0 MB", "patronictl list + failover medido 6.96 s", "Aprobada"),
+    "T30": ("Con WMS local abajo, cliente Tailscale accedió a http://10.20.0.34/api/health/ (HTTP 200 en 0.093 s) sobre gcp-wms-drp sin routers locales", "curl gcp-wms-drp /api/health/ HTTP 200 (2026-11-17)", "Aprobada"),
+}
+
 # Registro de la prueba de recuperación (S2_E3): (servicio, RTO objetivo, RPO objetivo)
 RECUPERACION = [
     ("PostgreSQL HA (Patroni DB01 -> DB02, VIP 10.10.32.10)", "15 minutos", "Segundos"),

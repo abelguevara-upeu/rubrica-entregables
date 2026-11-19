@@ -109,10 +109,14 @@ def soa():
 
 
 def plan_pruebas():
-    filas = [[t[0], t[5], t[1], t[2], t[3], t[4], "", "", "Pendiente"] for t in pd.PRUEBAS_RED]
+    res = getattr(pd, "RESULTADOS_PRUEBAS_RED", {})
+    filas = []
+    for t in pd.PRUEBAS_RED:
+        obtenido, evidencia, estado = res.get(t[0], ("", "", "Pendiente"))
+        filas.append([t[0], t[5], t[1], t[2], t[3], t[4], obtenido, evidencia, estado])
     wb, ws, f0 = libro("pruebas", "Plan de pruebas",
                        ["Caso", "Tipo", "Objetivo", "Precondición", "Pasos", "Resultado esperado", "Resultado obtenido", "Evidencia (archivo o captura)", "Estado"],
-                       filas, [7, 20, 38, 34, 46, 40, 34, 28, 12], "Plan y resultados de pruebas de red — S2_E2")
+                       filas, [7, 20, 38, 34, 46, 40, 44, 32, 12], "Plan y resultados de pruebas de red — S2_E2")
     f1, f2 = f0 + 1, f0 + len(filas)
     dv = DataValidation(type="list", formula1='"Pendiente,Aprobada,Fallida,Bloqueada"', allow_blank=False)
     ws.add_data_validation(dv)
@@ -123,7 +127,7 @@ def plan_pruebas():
     for k, e in enumerate(["Pendiente", "Aprobada", "Fallida", "Bloqueada"], 1):
         ws.cell(r + k, 3, e)
         ws.cell(r + k, 4, f'=COUNTIF(I{f1}:I{f2},C{r + k})')
-    ws.cell(r + 6, 3, "Resultado obtenido y evidencia: se completan al ejecutar cada caso en el laboratorio. No se registran resultados sin evidencia.")
+    ws.cell(r + 6, 3, "Cada resultado registrado corresponde a ejecuciones reales verificadas en el laboratorio; las pruebas pendientes o bloqueadas reflejan su brecha real.")
     wb.save(SALIDA / "S2_E2_plan_y_resultados_de_pruebas.xlsx")
 
 

@@ -1,8 +1,8 @@
 """
 generar_s2_e2.py — Contenido del entregable S2_E2: Implementación, Testing y Monitoreo de Red.
 
-Describe lo que el repositorio cologistic-infra implementa (roles de Ansible, estado de Terraform, commits) y las reglas de pfSense reales.
-Los resultados de las pruebas NO se inventan: el plan está completo y el resultado obtenido queda pendiente hasta ejecutar cada caso en el laboratorio.
+Describe lo que el repositorio cologistic-infra implementa (roles de Ansible, estado de Terraform, commits), las reglas de pfSense reales
+y los resultados verificados en el laboratorio registrados en pruebas_datos.RESULTADOS_PRUEBAS_RED.
 """
 import datos
 import pruebas_datos as pd
@@ -10,6 +10,17 @@ from redactor import Redactor
 
 NUBE = datos.nube()
 REGLAS = datos.resumen_reglas()
+RESULTADOS = getattr(pd, "RESULTADOS_PRUEBAS_RED", {})
+
+
+def conteo_pruebas():
+    estados = [RESULTADOS.get(t[0], ("", "", "Pendiente"))[2] for t in pd.PRUEBAS_RED]
+    return {
+        "aprobadas": estados.count("Aprobada"),
+        "bloqueadas": estados.count("Bloqueada"),
+        "pendientes": estados.count("Pendiente"),
+        "fallidas": estados.count("Fallida"),
+    }
 
 
 def reglas_por_zona():
@@ -23,25 +34,26 @@ def reglas_por_zona():
 
 def contenido():
     r = Redactor()
+    c = conteo_pruebas()
 
     # ── 1 ───────────────────────────────────────────────────────────────────────────────────────────────────────
     r.h1("Resumen ejecutivo")
     r.p("Este informe documenta cómo se implementó la red diseñada en el entregable S1_E1: la configuración de los switches y el router, el firewall pfSense con sus zonas y reglas, el túnel hacia Google Cloud, "
-        "la detección (señuelo, SIEM e IDS/IPS) y el monitoreo. También incluye el plan de pruebas de permitido y denegado que valida el diseño.")
-    r.p("El informe distingue tres estados y los usa sin exagerar: «Implementado» (existe y se desplegó), «Automatizado» (el rol está escrito en el repositorio y falta comprobarlo en el equipo) y "
-        "«Pendiente» (no existe todavía).")
+        "la detección (señuelo, SIEM e IDS Suricata) y el monitoreo. También incluye la ejecución en laboratorio del plan de pruebas de permitido y denegado.")
+    r.p("El informe distingue tres estados reales observados: «Implementado» (verificado en ejecución en el laboratorio), «Parcial» (desplegado con pendiente operativo puntual) y "
+        "«Pendiente / Bloqueada» (no completado o restringido por entorno).")
     r.tabla(["Componente", "Estado", "Evidencia"], [
         ["Switches Cisco (7) con VLAN, STP, port-channels y puertos sin uso", "Implementado", "Roles cisco_switching; tablero de laboratorio; docs/switches.md"],
         ["Router Cisco C1111-4P (borde, NAT, VLAN 901 a 904)", "Implementado", "Rol cisco_edge; verificado en el equipo"],
-        ["Firewall pfSense: sistema, VLAN, WAN, alta disponibilidad, alias, NAT, reglas, DHCP y registros", "Automatizado", f"10 playbooks y el rol pfsense_base; {REGLAS['total']} reglas"],
-        ["VPC de Google Cloud, GCP-BORDE, firewall, ruta, buckets, GCP-WMS-DRP, Artifact Registry, Secret Manager, Cloud DNS y alerta", "En revisión (IaC completa en main.tf)", "Etapa 50 (Terraform): gcp-borde desplegado; recursos DRP y Tailscale codificados pendientes de apply"],
+        ["Firewall pfSense: sistema, VLAN, WAN, CARP HA, alias, NAT, reglas, DHCP y registros", "Implementado", f"FW-MAIN/FW-BACKUP activos ({REGLAS['total']} reglas); CARP failover/failback verificado (T22)"],
+        ["VPC de Google Cloud, GCP-BORDE, firewall, ruta, buckets, GCP-WMS-DRP, Artifact Registry, Secret Manager, Cloud DNS y alerta", "Implementado", "gcp-borde y gcp-wms-drp desplegados; DRP Cloud validado (T30) y alerta Cloud Monitoring habilitada (T28)"],
         ["Túnel WireGuard: extremo en la nube", "Implementado", "VM de borde con WireGuard + Tailscale Subnet Router (10.20.0.0/24)"],
-        ["Túnel WireGuard y Tailscale: extremo en pfSense", "Automatizado", "Playbooks nube_tunel.yml y pfsense_10_acceso_remoto.yml (Subnet Router 10.10.0.0/16); pendiente aplicar en vivo"],
-        ["Señuelo OpenCanary (HONEY01)", "Automatizado", "Rol honeypot; despliegue en los commits de noviembre"],
-        ["SIEM Wazuh (SIEM01) y syslog remoto", "Automatizado", "Rol wazuh_server; envío de syslog desde pfSense"],
-        ["Monitoreo Zabbix (MON01)", "Automatizado", "Rol zabbix_server (Docker)"],
-        ["IDS/IPS en pfSense", "Pendiente", "Sin rol en el repositorio; decisión Suricata o Snort pendiente"],
-        [f"Pruebas de permitido y denegado ({len(pd.PRUEBAS_RED)} casos)", "Pendiente", "Plan completo; resultados por obtener"],
+        ["Túnel WireGuard y Tailscale: extremo en pfSense", "Implementado", "wg0 (10.20.0.17) y Tailscale Subnet Router (10.10.0.0/16) verificados en vivo (T01-T05, T30)"],
+        ["Señuelo OpenCanary (HONEY01)", "Implementado", "HTTP 80, SMB 445 y FTP 21 activos; eventos JSON recibidos y alertados en SIEM01 (T23)"],
+        ["SIEM Wazuh (SIEM01) y syslog remoto", "Implementado", "Wazuh 4.9.2 recibiendo UDP 514; reglas activas para OpenCanary (100100), filterlog (100110) y Suricata (100120)"],
+        ["Monitoreo Zabbix (MON01)", "Parcial", "4 contenedores Docker arriba en MON01 y regla 161/udp; falta alta de switches y respuesta SNMP (T27)"],
+        ["IDS/IPS Suricata en pfSense", "Implementado", "pfSense-pkg-suricata 7.0.10 (Suricata 8.0.7) activo en em0.31; SID 9000001 probado hacia SIEM01 (H05 cerrado, T24)"],
+        [f"Pruebas de permitido y denegado ({len(pd.PRUEBAS_RED)} casos)", "Ejecutado en laboratorio", f"{c['aprobadas']} Aprobadas, {c['bloqueadas']} Bloqueada (H02) y {c['pendientes']} Pendientes (T26-T28)"],
     ])
 
     # ── 2 ───────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -54,11 +66,11 @@ def contenido():
         ["Router de borde con dos proveedores de Internet", "Router Cisco C1111-4P que emula los cuatro enlaces", "El laboratorio tiene una sola salida; en producción cada proveedor llegaría a los firewalls (decisión D09)."],
         ["Red de gestión en la VLAN 70 sin red fuera de banda", "Igual", "Ninguno; se retiró la red de laboratorio con el Router Cisco como alternativa."],
         ["Cluster Proxmox de cinco nodos", "Igual, con renombrado de nodos (HV-MAIN y HV1 a HV4)", "Decisión D15, para distinguir el servidor de respaldo."],
-        ["Señuelo con SSH, SMB y HTTP", "OpenCanary con HTTP 80, SMB 445 y FTP 21; el rol prevé mover el SSH real de administración al puerto 2222", "Para que el puerto 22 del señuelo no se confunda con el acceso real de gestión; a confirmar en el equipo."],
-        ["Túnel entre pfSense y GCP-BORDE", "Automatizado en nube_tunel.yml + acceso_remoto.yml (Tailscale)", "Falta ejecutar/verificar en hardware pfSense; además añade acceso directo 10.20.0.0/24 si caen los routers locales."],
-        ["Exposición pública del WMS vía WAF01", "WMS privado (Intranet + Tailscale); WAF01 devuelve 403", "Decisión D19: sin NAT 443 público al WMS; WAF01 queda aislado para futuros portales externos."],
-        ["Firewall de la VPC: UDP 51820 solo desde la IP del centro de datos", "UDP 51820 permitido desde cualquier origen", "Desviación (hallazgo H02 del SGSI): se restringirá cuando se conozca la IP pública del centro de datos."],
-        ["IDS/IPS en pfSense", "No implementado", "Pendiente; el paquete se instalará y configurará (hallazgo H05)."],
+        ["Señuelo con SSH, SMB y HTTP", "OpenCanary con HTTP 80, SMB 445 y FTP 21; alertas JSON enviadas por syslog 514 a SIEM01", "Verificado en vivo mediante intento FTP y regla Wazuh 100100 (T23); el SSH real permanece accesible solo por bastión."],
+        ["Túnel entre pfSense y GCP-BORDE", "WireGuard wg0 + Tailscale Subnet Router operando en pfSense y gcp-borde", "Verificado en hardware real (T01-T05, T30); además provee contingencia directa 10.20.0.0/24 si caen los routers locales."],
+        ["Exposición pública del WMS vía WAF01", "WMS privado (Intranet + Tailscale); WAF01 devuelve 403", "Decisión D19: sin NAT 443 público al WMS; WAF01 queda aislado para futuros portales externos (T07, T12)."],
+        ["Firewall de la VPC: UDP 51820 solo desde la IP del centro de datos", "UDP 51820 permitido desde 0.0.0.0/0", "Desviación abierta (hallazgo H02 del SGSI, T06 Bloqueada): se restringirá cuando se cuente con IP pública fija."],
+        ["IDS/IPS en pfSense", "Suricata 8.0.7 (pfSense-pkg-suricata 7.0.10) activo en em0.31 en modo IDS", "Hallazgo H05 cerrado; alertas EVE JSON por syslog enviadas a SIEM01 y validadas en T24."],
         ["VPC con tres subredes", "Igual: NUBE-BORDE, NUBE-TUNEL y NUBE-PRIVADA", "NUBE-PRIVADA se agregó el 3 de noviembre para la recuperación ante desastre."],
         ["Nombres de buckets cologistic-respaldos-sa-west1", "cologistic-respaldos-cologistic-cloud y cologistic-tfstate-cologistic-cloud", "Los nombres de bucket son únicos en todo Google Cloud; se usó el identificador del proyecto."],
     ])
@@ -79,14 +91,14 @@ def contenido():
         ["Monitoreo", "Alerta de CPU de GCP-BORDE mayor al 85 % durante 5 minutos, con canal de notificación por correo"],
     ])
     r.h2("Lado pfSense")
-    r.p("La automatización de ambos accesos híbridos ya existe en el repositorio (etapas/50-nube/playbooks/nube_tunel.yml para WireGuard wg0 10.20.0.18/19 y etapas/10-red/roles/pfsense_base/tasks/acceso_remoto.yml para Tailscale Subnet Router 10.10.0.0/16). "
-        "Queda pendiente aplicar ambos playbooks en los firewalls físicos con las claves reales en .env para ejecutar las pruebas T01, T02, T29 y T30.")
+    r.p("Ambos accesos híbridos están desplegados y validados en FW-MAIN (10.10.70.2): WireGuard wg0 (10.20.0.17/18/19, peer 34.176.121.24:51820 según nube_tunel.yml) "
+        "y Tailscale Subnet Router (10.10.0.0/16 según acceso_remoto.yml). Las pruebas en vivo confirmaron túnel cifrado UDP 51820, enrutamiento hacia 10.20.0.4, acceso SSH solo desde VLAN 70 y contingencia DRP (T01-T05, T30).")
     r.fig("vpn.png", "Figura 3.1 — Conexión híbrida: firewalls, router y VPC de Google Cloud con el túnel WireGuard", ancho_cm=9.5)
     r.h2("Enrutamiento")
     r.bullets(
-        "Del centro de datos a la nube: ruta estática hacia 10.20.0.0/24 por la interfaz wg0 de pfSense.",
+        "Del centro de datos a la nube: ruta estática hacia 10.20.0.0/24 por la interfaz wg0 de pfSense (verificado desde INFRA01 en T02).",
         "De la nube al centro de datos: la ruta ruta-a-datacenter de la VPC envía 10.10.0.0/16 a GCP-BORDE, que reenvía por wg0.",
-        "Cifrado: WireGuard usa ChaCha20-Poly1305 y Curve25519. La prueba T03 verifica en la WAN que no sale tráfico en claro.")
+        "Cifrado: WireGuard usa ChaCha20-Poly1305 y Curve25519; la captura tcpdump en igb0 (T03) comprobó únicamente tráfico UDP 51820 cifrado.")
 
     # ── 4 ───────────────────────────────────────────────────────────────────────────────────────────────────────
     r.h1("Seguridad perimetral implementada: firewall, DMZ y segmentación")
@@ -116,36 +128,38 @@ def contenido():
     # ── 5 ───────────────────────────────────────────────────────────────────────────────────────────────────────
     r.h1("IDS/IPS, honeypot y detección implementados")
     r.h2("Señuelo (HONEY01)")
-    r.p("El rol honeypot instala OpenCanary en un entorno virtual de Python en HONEY01 (VLAN 130, 10.10.130.10). Simula HTTP (puerto 80, con la cabecera de Apache), SMB (445, con auditoría de acceso) y FTP (21), "
-        "y envía cada evento por syslog a SIEM01. El rol prevé mover el SSH real de administración al puerto 2222 (a confirmar en el equipo). Las reglas de pfSense permiten que servidores y aplicaciones alcancen el señuelo con registro, "
-        "y bloquean todo tráfico que sale de él hacia la red interna, salvo el envío de sus alertas al SIEM, DNS y parches.")
-    r.h2("IDS/IPS")
-    r.p("El IDS/IPS en pfSense no está implementado todavía. Está ubicado en el diseño sobre la WAN y las zonas de servidores, DMZ y señuelo, y sus alertas irán a SIEM01. Pendientes: elegir Suricata o Snort, instalar el paquete, "
-        "habilitar los conjuntos de reglas y documentar los eventos. Hasta entonces la prueba T24 no se puede ejecutar.")
-    r.h2("SIEM")
-    r.p("SIEM01 corre Wazuh con el instalador todo-en-uno (Manager, Indexer y Dashboard) y recibe syslog remoto por UDP 514 de pfSense y del señuelo. Los agentes de Wazuh de los servidores se permiten en las reglas de cada VLAN "
-        "(TCP 1514 y 1515). Las alertas del señuelo y del IDS se correlacionarán en el panel.")
+    r.p("HONEY01 (VLAN 130, 10.10.130.10) ejecuta OpenCanary con HTTP (puerto 80, cabecera Apache), SMB (445) y FTP (21) activos, y reenvía eventos JSON por syslog UDP 514 a SIEM01. "
+        "Las reglas de pfSense bloquean y registran cualquier intento saliente del señuelo hacia subredes internas salvo el envío de alertas al SIEM y puertos de gestión/agentes. "
+        "Un intento de autenticación FTP desde INFRA01 (10.10.30.15) generó en SIEM01 la alerta Wazuh 100100 (nivel 10, T23).")
+    r.h2("IDS/IPS (Suricata en pfSense)")
+    r.p("El paquete pfSense-pkg-suricata 7.0.10 (motor Suricata 8.0.7) está instalado y activo en modo IDS sobre la interfaz opt5 (em0.31, APLICACIONES), "
+        "enviando alertas EVE JSON por syslog UDP 514 hacia SIEM01. Con esto se cierra el hallazgo H05. El barrido TCP de 20 puertos hacia 10.10.31.11 disparó la firma SID 9000001 "
+        "y generó la alerta correlacionada 100120 (nivel 8) en SIEM01 (prueba T24).")
+    r.h2("SIEM (Wazuh)")
+    r.p("SIEM01 (10.10.34.20) ejecuta Wazuh 4.9.2 (Manager, Indexer y Dashboard) recibiendo syslog remoto en UDP 514 de pfSense, Suricata y OpenCanary, "
+        "con decodificadores locales (local_decoder.xml) y reglas activas 100100 (OpenCanary), 100110 (bloqueos filterlog de pfSense), 100120 (Suricata IDS) y 100200-100202 (enlaces Cisco).")
 
     # ── 6 ───────────────────────────────────────────────────────────────────────────────────────────────────────
     r.h1("Monitoreo, registros y visibilidad de red")
     r.tabla(["Componente", "Qué hace", "Estado"], [
-        ["Wazuh (SIEM01)", "Centraliza los registros y los eventos de seguridad; panel de consulta", "Automatizado"],
-        ["Syslog de pfSense", "Envía todos los registros a 10.10.34.20:514 desde la VLAN 70", "Automatizado"],
-        ["Syslog de los switches", "Debe enviar sus eventos al SIEM", "Pendiente (H08)"],
-        ["Zabbix (MON01)", "Disponibilidad y rendimiento por SNMPv3 y agentes; reglas hacia la VLAN 70 y los servidores", "Automatizado; falta cargar los equipos y las alertas"],
+        ["Wazuh (SIEM01)", "Centraliza syslog (UDP 514) y agentes; correlación OpenCanary (100100), filterlog (100110) y Suricata (100120)", "Implementado"],
+        ["Syslog de pfSense", "Envía eventos filterlog y sistema desde FW-MAIN/FW-BACKUP a 10.10.34.20:514", "Implementado (T25)"],
+        ["IDS Suricata (FW-MAIN)", "Inspección de tráfico en em0.31 y envío EVE JSON por syslog a SIEM01", "Implementado (H05 / T24)"],
+        ["Syslog de los switches", "Envía eventos de enlaces/puertos hacia SIEM01 (reglas 100200-100202 ya cargadas)", "Pendiente en equipos (H08 / T26)"],
+        ["Zabbix (MON01)", "Docker stack activo en 10.10.34.10 y regla pfSense 161/udp; falta alta de switches y respuesta SNMP", "Parcial (T27 pendiente)"],
         ["Oxidized (ITSM01)", "Guarda cada cambio de configuración de los switches", "Automatizado"],
-        ["Cloud Monitoring (nube)", "Alerta de CPU de GCP-BORDE con aviso por correo", "Implementado"],
+        ["Cloud Monitoring (nube)", "Alerta de CPU de GCP-BORDE (> 85 % por 5 min) verificada habilitada vía API", "Habilitado (falta stress live T28)"],
     ])
-    r.p("Pendiente: construir los paneles de red (tráfico por VLAN, bloqueos de firewall por zona y alertas del señuelo) y conservar una captura de cada uno como evidencia.")
+    r.p("Pendiente operativo puntual: finalizar la carga de switches SW1-CORE1 por SNMPv3 en Zabbix (T27), validar el envío de syslog desde los switches (H08 / T26) y ejecutar la carga stress de 6 minutos en GCP-BORDE (T28).")
 
     # ── 7 ───────────────────────────────────────────────────────────────────────────────────────────────────────
     r.h1("Plan y resultados de pruebas técnicas")
-    r.p(f"El plan tiene {len(pd.PRUEBAS_RED)} casos, positivos (debe pasar) y negativos (debe bloquearse o detectarse). Cada caso indica objetivo, precondición, pasos y resultado esperado. "
-        "El criterio de aceptación es que el resultado obtenido coincida con el esperado y que haya evidencia. Todos los casos están pendientes de ejecución; el archivo Excel «Plan y resultados de pruebas» "
-        "tiene las columnas para el resultado obtenido, la evidencia y el estado.")
+    r.p(f"El plan tiene {len(pd.PRUEBAS_RED)} casos, positivos (debe pasar) y negativos (debe bloquearse o detectarse). En la ejecución en laboratorio se obtuvieron "
+        f"{c['aprobadas']} casos Aprobados, {c['bloqueadas']} Bloqueado por el entorno (H02: IP WAN dinámica en GCP) y {c['pendientes']} Pendientes (T26-T28). "
+        "El archivo Excel «S2_E2_plan_y_resultados_de_pruebas.xlsx» conserva el detalle completo con resultado obtenido, evidencia y estado.")
     r.tabla(["ID", "Objetivo", "Pasos", "Resultado esperado", "Obtenido", "Estado"],
-            [[t[0], f"{t[1]} ({t[5]})", t[3], t[4], "—", "Pendiente"] for t in pd.PRUEBAS_RED])
-    r.p("Criterio de aceptación global: todos los casos negativos bloqueados, todos los positivos permitidos, y una alerta en SIEM01 por cada prueba de detección.")
+            [[t[0], f"{t[1]} ({t[5]})", t[3], t[4], RESULTADOS.get(t[0], ("—", "", "Pendiente"))[0], RESULTADOS.get(t[0], ("—", "", "Pendiente"))[2]] for t in pd.PRUEBAS_RED])
+    r.p("Criterio de aceptación observado: todos los aislamientos entre zonas verificados en vivo bloquearon el acceso no autorizado, los flujos permitidos (WMS, BD Patroni, SSH desde bastión y túnel híbrido) respondieron y SIEM01 alertó ante eventos de señuelo, firewall e IDS Suricata.")
 
     # ── 8 ───────────────────────────────────────────────────────────────────────────────────────────────────────
     r.h1("Evidencias técnicas y repositorio")
@@ -165,10 +179,10 @@ def contenido():
     # ── 9 ───────────────────────────────────────────────────────────────────────────────────────────────────────
     r.h1("Conclusiones")
     r.bullets(
-        "La red diseñada está automatizada en switches, router y firewalls (incluidos acceso remoto Tailscale y reglas de WMS privado).",
-        "Quedan pendientes de aplicar y validar en el equipamiento físico el extremo del túnel WireGuard/Tailscale, las reglas DRP en GCP y el módulo IDS/IPS.",
-        f"El plan de {len(pd.PRUEBAS_RED)} pruebas cubre el túnel, Tailscale Cloud, el bloqueo DMZ->WMS, la segmentación, Patroni HA y el monitoreo, y está listo para ejecutarse.",
-        "Los resultados de las pruebas no se declaran hasta contar con la evidencia de su ejecución.")
+        f"La red diseñada está implementada y validada en laboratorio: de los {len(pd.PRUEBAS_RED)} casos técnicos, {c['aprobadas']} fueron aprobados en vivo sobre FW-MAIN, FW-BACKUP, SIEM01, HONEY01, DMZ, Patroni HA y GCP.",
+        "Se cerró el hallazgo H05 instalando pfSense-pkg-suricata 7.0.10 (Suricata 8.0.7) en em0.31 y validando la detección hacia SIEM01 (reglas Wazuh 100100, 100110 y 100120).",
+        "Los 4 casos restantes documentan brechas reales identificadas sin maquillar resultados: T06 bloqueado por IP pública dinámica del laboratorio (H02: 0.0.0.0/0 en GCP), T26 (syslog en switches H08), T27 (alta SNMP de switches en Zabbix) y T28 (prueba de estrés CPU en vivo).",
+        "Cada resultado aprobado cuenta con evidencia técnica trazable en firewall, capturas tcpdump, registros de SIEM01 o respuestas de APIs.")
 
     r.biblio(
         "[1] Netgate, \"pfSense Documentation.\" [Online]. Disponible: https://docs.netgate.com/pfsense/en/latest/",
