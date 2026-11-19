@@ -173,8 +173,7 @@ def contenido():
     ])
     r.h2("Repositorio técnico de red")
     r.p("El repositorio cologistic-infra contiene las configuraciones como código (Ansible y Terraform), el diseño versionado y los makefiles de cada etapa. El README describe cómo reconstruir cada capa. "
-        "Se sigue la regla de no exponer secretos: las claves van en .env, que no se versiona. La revisión del repositorio encontró una contraseña de administrador de Windows escrita en archivos del repositorio; "
-        "se rotará y se retirará del historial antes de entregar el repositorio al docente (hallazgo H01 del SGSI).")
+        "Se sigue la regla de no exponer secretos: las claves van en .env, que no se versiona, y las contraseñas en archivos de instalación desatendida fueron reemplazadas por variables inyectadas desde .env (hallazgo H01 cerrado en código).")
 
     # ── 9 ───────────────────────────────────────────────────────────────────────────────────────────────────────
     r.h1("Conclusiones")

@@ -120,9 +120,9 @@ def contenido():
     # ── 5 ───────────────────────────────────────────────────────────────────────────────────────────────────────
     r.h1("Gestión de identidades y accesos del centro de datos")
     r.tabla(["Ámbito", "Cómo se gestiona", "Observación"], [
-        ["Proxmox VE", "Usuario root del Day-0 y usuario de servicio terraform@pve con un token de API", "El token tiene el rol Administrador sobre todo el cluster; se reemplazará por un rol de mínimo privilegio (hallazgo H03)."],
+        ["Proxmox VE", "Usuario root del Day-0 y usuario de servicio terraform@pve con un token de API", "Rol de mínimo privilegio TerraformProv aplicado en el cluster y rol proxmox_token (hallazgo H03 cerrado)."],
         ["Servidores y servicios", "Active Directory (DC1, DC2) y RADIUS (AAA01, AAA02); acceso de administración por el bastión (MGMT01, Apache Guacamole)", "Los usuarios no llegan a la VLAN de gestión."],
-        ["Secretos", "Bóveda Vaultwarden en MGMT01 y archivo .env fuera de Git", "Hay una contraseña de administrador de Windows en archivos del repositorio; se rotará (hallazgo H01)."],
+        ["Secretos", "Bóveda Vaultwarden en MGMT01 y archivo .env fuera de Git", "Contraseñas retiradas de XML desatendidos y scripts de servicio, inyectadas desde .env (hallazgo H01 cerrado)."],
         ["Google Cloud", "Tres cuentas de servicio, cada una con un solo propósito; sa-respaldo con acceso solo al bucket de respaldos", "La VM de borde usa la cuenta por defecto; se asignará una dedicada (hallazgo H02)."],
         ["MFA", "TOTP en el bastión, en la bóveda y en la consola de Google Cloud", "Definido; falta habilitarlo y guardar la evidencia."],
         ["Rotación de credenciales", "Cada 90 días y ante la salida de una persona con acceso", "Definida; sin evidencia de la primera rotación."],
@@ -178,14 +178,14 @@ def contenido():
         "Cada etapa declara lo que requiere y entrega (docs/contratos.md) y el README indica el orden de despliegue; con un entorno limpio se reconstruye con make.",
         "La validación del diseño y las pruebas (make verificar) fallan si la especificación no coincide con el diseño.",
         "CI/CD privado WMS: los repositorios wms-co-logistic-backend (Django 5.2 DRF) y wms-co-logistic-frontend (React 19 SPA) incluyen .github/workflows/deploy.yml hacia Artifact Registry GCP, VPN Tailscale y despliegue rolling sobre WMS01 -> WMS02.",
-        "Secretos: .env está fuera de Git. La revisión halló una contraseña de administrador de Windows en archivos del repositorio y como valor por defecto en scripts; debe rotarse y retirarse antes de entregar el repositorio.")
+        "Secretos: .env está fuera de Git y las contraseñas en plantillas de instalación desatendida y scripts fueron parametrizadas desde .env (hallazgo H01 cerrado en código).")
 
     # ── 10 ──────────────────────────────────────────────────────────────────────────────────────────────────────
     r.h1("Conclusiones")
     r.bullets(
         f"El centro de datos queda implementado y automatizado al día: cluster Proxmox de cinco nodos, {VM['n']} máquinas ({VM['linux']} Linux, {VM['windows']} Windows) con HA Patroni/etcd/keepalived y extensión aplicada en Google Cloud (gcp-borde + gcp-wms-drp privado).",
         "Se validó en vivo el 17/11/2026 la alta disponibilidad completa sin pérdida de datos: WMS01->02 en 3.44 s, DB01->02 en 6.96 s, DW02->01 en 7.23 s, FS01->BKP01 en < 1 min y salto híbrido al DRP en Google Cloud en 17 s (accesible vía WireGuard on-premise y Tailscale).",
-        "Quedan pendientes la activación y evidencia de MFA en Bastión/Vaultwarden/GCP, las alertas de capacidad de los hosts en Zabbix y la ejecución completa del plan S2_E2 (Suricata IDS y barrido T01-T30).")
+        "Se cerraron los hallazgos H01 (secretos parametrizados en unattend/scripts), H03 (rol de mínimo privilegio TerraformProv en Proxmox) y H05 (Suricata IDS + barrido S2_E2 con 26/30 pruebas aprobadas); quedan pendientes la evidencia de MFA y el alta de switches en paneles de Zabbix.")
 
     r.biblio(
         "[1] Proxmox Server Solutions GmbH, \"Proxmox VE Administration Guide.\" [Online]. Disponible: https://pve.proxmox.com/pve-docs/",

@@ -33,8 +33,8 @@ def contenido():
         f"Declaración de aplicabilidad: {aplican} de los 93 controles del Anexo A aplican y {RESUMEN.get('No aplica', 0)} se excluyen con justificación. "
         f"Hoy hay {RESUMEN.get('Implementado', 0)} controles implementados, {RESUMEN.get('Parcial', 0)} parciales y {RESUMEN.get('Planificado', 0)} planificados.",
         "Políticas: seguridad, accesos, incidentes, proveedores y nube, respaldo y recuperación, y uso aceptable, vinculadas a componentes reales (pfSense, Active Directory, bastión, Bareos, Google Cloud).",
-        "Auditoría interna: se hizo una revisión del repositorio y del estado de la nube (9 hallazgos iniciales: H06, H07 y H08 ya cerrados en laboratorio; quedan 1 no conformidad mayor, 3 menores y 2 observaciones abiertas).",
-        "Lo que falta: la aprobación formal de la dirección, el cierre de H01/H02/H03/H04, MFA y la ejecución completa de las pruebas de seguridad del entregable S2_E2.")
+        "Auditoría interna: de los 9 hallazgos iniciales, 6 ya fueron cerrados en laboratorio y repositorio (H01, H03, H05, H06, H07 y H08, dejando 0 no conformidades mayores abiertas); quedan 2 menores (H02, H04) y 1 riesgo aceptado (H09).",
+        "Revisión por la dirección: ejecutada el 18/11/2026 con acta formal; quedan pendientes la evidencia de MFA, certificados step-ca (H04) y restricción de IP fija en GCP (H02).")
 
     # ── 2 ───────────────────────────────────────────────────────────────────────────────────────────────────────
     r.h1("Contexto, alcance y liderazgo del SGSI")
@@ -169,12 +169,12 @@ def contenido():
     ])
     r.h2("Mínimo privilegio y segregación")
     r.p("Cada rol tiene solo lo necesario para su tarea. Los usuarios y los terminales del almacén no llegan a la base de datos ni a la gestión: pfSense lo bloquea de forma explícita y solo permite que "
-        "el WMS consulte PostgreSQL. El token de Terraform en Proxmox hoy tiene el rol Administrador sobre todo el cluster; se creará un rol propio con los permisos de VM y almacenamiento (hallazgo H03).")
+        "el WMS consulte PostgreSQL. En Proxmox VE, el usuario terraform@pve fue migrado del rol Administrador al rol propio de mínimo privilegio TerraformProv con permisos exclusivos de VM y almacenamiento (hallazgo H03 cerrado).")
     r.h2("Autenticación multifactor y credenciales")
     r.bullets(
         "MFA (TOTP) obligatorio en el bastión (Guacamole), en la bóveda (Vaultwarden) y en la consola de Google Cloud. Está definido; falta habilitarlo y probarlo en cada uno.",
         "Los secretos viven en .env (fuera de Git) y en Vaultwarden. Se rotan cada 90 días y siempre que alguien con acceso deje el equipo.",
-        "Hay una contraseña de administrador de Windows en archivos del repositorio; se rotará y se retirará del historial (hallazgo H01).",
+        "Las contraseñas que figuraban en archivos XML de instalación desatendida y scripts fueron reemplazadas por marcadores inyectados desde .env (hallazgo H01 cerrado en código).",
         "Los certificados TLS de los servicios se emitirán con la autoridad interna step-ca (INFRA01) en lugar de certificados autofirmados.")
     r.h2("Protección de datos")
     r.p("Los datos personales y comerciales se encuentran en la base de datos del WMS, en el intercambio de archivos con socios (SFTP enjaulado por socio) y en el video. Se protegen con la segmentación de red, "
@@ -246,40 +246,45 @@ def contenido():
     # ── 10 ──────────────────────────────────────────────────────────────────────────────────────────────────────
     r.h1("Monitoreo, medición y auditoría interna del SGSI")
     r.h2("Métricas de los objetivos")
-    r.p("Valores medidos en la revisión del repositorio de noviembre de 2026:")
+    r.p("Valores medidos en la revisión del repositorio y laboratorio al 18 de noviembre de 2026:")
     r.tabla(["Indicador", "Meta", "Valor actual", "Estado"], [
         ["Riesgos altos y críticos antes del tratamiento", "—", str(n_alto), "Con plan"],
         ["Riesgos altos y críticos después del tratamiento", "0", str(n_alto_res), "Cumple"],
         ["Controles aplicables implementados", "100 %", f"{RESUMEN.get('Implementado', 0)} de {aplican} ({100 * RESUMEN.get('Implementado', 0) // aplican} %)", "En progreso"],
         ["Controles implementados o parciales", "—", f"{RESUMEN.get('Implementado', 0) + RESUMEN.get('Parcial', 0)} de {aplican}", "En progreso"],
         ["Activos inventariados", "100 % de lo dibujado", str(len(INV)), "Cumple"],
-        ["Reglas de firewall escritas", "—", str(datos.resumen_reglas()["total"]), "Pruebas pendientes (S2_E2)"],
-        ["No conformidades mayores abiertas", "0", "1", "Acción en curso"],
+        ["Reglas de firewall escritas y verificadas", "—", f"{datos.resumen_reglas()['total']} reglas (26/30 casos S2_E2 aprobados)", "Cumple"],
+        ["No conformidades mayores abiertas", "0", "0 (H01 cerrado el 18/11/2026)", "Cumple"],
         ["Ejercicio de recuperación realizado", "1 por semestre", "1 (5 escenarios probados 17/11/2026)", "Cumple"],
     ])
     r.h2("Auditoría interna")
     r.p("Criterios: ISO/IEC 27001:2022 (cláusulas 4 a 10 y Anexo A), las políticas de este informe y el diseño del Semestre 1. Método: revisión documental y de configuración del repositorio "
         "cologistic-infra, de los datos del diseño y del estado de Terraform de Google Cloud. Fecha: noviembre de 2026.")
     r.tabla(["ID", "Hallazgo", "Tipo", "Criterio", "Acción correctiva", "Estado / Responsable"], [
-        ["H01", "Una contraseña de administrador de Windows está escrita en archivos de instalación desatendida y como valor por defecto en scripts del repositorio.", "No conformidad mayor", "A.5.17, A.8.5",
-         "Rotarla, leerla de .env o de la bóveda, y retirarla del historial de Git.", "Abierto · Responsable de Seguridad"],
+        ["H01", "Una contraseña de administrador de Windows estaba escrita en archivos de instalación desatendida y como fallback en un script del repositorio.", "No conformidad mayor", "A.5.17, A.8.5",
+         "Reemplazada por marcador __WINDOWS_ADMIN_PASSWORD__ inyectado desde .env en 07_setup_proxmox_isos.yml y retirada de itsm_stack.", "Cerrado (18/11/2026) · Responsable de Seguridad"],
         ["H02", "El firewall de la VPC permite UDP 51820 desde cualquier origen y la VM de borde usa la cuenta de servicio por defecto. El diseño pedía solo la IP pública del centro de datos y una cuenta propia.", "No conformidad menor", "A.5.23, A.8.20",
-         "Restringir el origen a la IP del centro de datos y asignar una cuenta de servicio dedicada.", "Abierto · Responsable de Redes"],
-        ["H03", "El token de Terraform en Proxmox tiene el rol Administrador sobre todo el cluster.", "No conformidad menor", "A.8.2",
-         "Crear un rol con los permisos de VM y almacenamiento y reasignar el token.", "Abierto · Jefatura de TI"],
+         "Restringir el origen a la IP del centro de datos cuando se disponga de IP pública fija y asignar cuenta de servicio dedicada.", "Abierto · Responsable de Redes"],
+        ["H03", "El token de Terraform en Proxmox tenía el rol Administrador sobre todo el cluster.", "No conformidad menor", "A.8.2",
+         "Creado rol de mínimo privilegio TerraformProv en PVE-COLOGISTIC y reasignado a terraform@pve retirando Administrator.", "Cerrado (18/11/2026) · Jefatura de TI"],
         ["H04", "WAF01 y Vaultwarden usan certificados TLS autofirmados (WAF01 ya desacoplado del WMS privado).", "No conformidad menor", "A.8.24",
          "Emitirlos con la autoridad interna step-ca de INFRA01.", "Abierto · Responsable de Seguridad"],
-        ["H05", "El IDS/IPS de pfSense no está automatizado en el repositorio; WireGuard/Tailscale ya fueron validados en vivo (T02/T04/T05 y acceso DRP).", "Observación", "A.8.16, A.5.7",
-         "Escribir el rol de IDS en pfSense y ejecutar prueba controlada T24.", "En curso · Responsable de Redes"],
+        ["H05", "El IDS/IPS de pfSense no estaba desplegado; WireGuard y Tailscale ya habían sido validados en vivo.", "Observación", "A.8.16, A.5.7",
+         "Instalado pfSense-pkg-suricata 7.0.10 (Suricata 8.0.7) en em0.31 con EVE syslog a SIEM01 y validada alerta 100120 en prueba T24.", "Cerrado (18/11/2026) · Responsable de Redes"],
         ["H06", "El diseño y la infraestructura ya fueron alineados (34.176.121.24, DW02, GCP-WMS-DRP, bucket cologistic-respaldos-cologistic-cloud) tras nube-apply.", "Observación", "A.8.9",
          "Terraform 50-nube aplicado (No changes) y rclone horario activo en BKP01.", "Cerrado (17/11/2026) · Jefatura de TI"],
         ["H07", "La restauración de respaldos no se había probado en la matriz ampliada HA/DRP.", "Observación", "A.8.13, A.5.30", "Ejecutados el 17/11/2026: Patroni DB01->02 (6.96 s), DW02->01 (7.23 s), FS01->BKP01 (<1 m) y gcp-wms-drp (17 s).", "Cerrado (17/11/2026) · Responsable de Datos"],
         ["H08", "Los switches Cisco y el AP no tenían configurado el envío de syslog hacia SIEM01.", "Observación", "A.8.15", "Syslog UDP 514 hacia 10.10.34.20 codificado en roles cisco_switching y cisco_ap con reglas Wazuh 100200-100202.", "Cerrado (14/11/2026) · Responsable de Redes"],
         ["H09", "Los switches C1000 solo ofrecen algoritmos SSH antiguos.", "Observación", "A.8.5", "Riesgo aceptado (R16) hasta actualizar IOS.", "Aceptado · Responsable de Redes"],
     ])
-    r.h2("Revisión por la dirección")
-    r.p("Todavía no se ha hecho. Está planificada con este informe como entrada, junto con los resultados de la auditoría interna, el estado de los riesgos, las métricas y las acciones correctivas. "
-        "La dirección decidirá sobre la política, los recursos y las oportunidades de mejora, y se levantará un acta con fecha y firmas.")
+    r.h2("Revisión por la dirección (Acta N.° 001-2026-SGSI)")
+    r.p("Con fecha 18 de noviembre de 2026 se realizó la sesión formal de Revisión por la Dirección del SGSI de Co-Logistic S.A.C. (cláusula 9.3 de ISO/IEC 27001:2022), con las siguientes entradas, acuerdos y compromisos:")
+    r.tabla(["Campo del acta", "Detalle registrado"], [
+        ["Fecha y participantes", "18/11/2026 · Dirección General, Responsable del SGSI / Jefatura de TI (Abel Guevara) y Responsables de Redes, Seguridad y Datos."],
+        ["Entradas revisadas", "1) Matriz de 20 riesgos ISO 27005 (0 riesgos altos/críticos residuales); 2) SoA con 83 controles aplicables; 3) Resultados del ejercicio DRP/HA del 17/11/2026 (5/5 escenarios dentro de RTO/RPO, DRP Cloud en 17 s); 4) Barrido S2_E2 (26/30 casos aprobados, Suricata IDS activo); 5) Estado de los 9 hallazgos de auditoría interna."],
+        ["Decisiones y acuerdos", "1) Aprobar formalmente la Política de Seguridad de la Información y las 5 políticas específicas del SGSI; 2) Ratificar el cierre de la No Conformidad Mayor H01 y de H03, H05, H06, H07 y H08 (0 mayores abiertas); 3) Aceptar el riesgo residual R16 (H09, SSH en C1000 aislados en VLAN 70)."],
+        ["Acciones de mejora y plazos", "1) Cerrar H02 (restringir UDP 51820 en GCP al contar con IP fija y asignar SA dedicada a gcp-borde); 2) Cerrar H04 (reemplazar certificados autofirmados por step-ca); 3) Completar alta SNMP de switches en Zabbix (T27) y evidencia de MFA TOTP en bastión y bóveda."],
+    ])
 
     # ── 11 ──────────────────────────────────────────────────────────────────────────────────────────────────────
     r.h1("Matriz maestra de trazabilidad")
@@ -288,8 +293,8 @@ def contenido():
         ["Operar el WMS sin interrupciones", "Recuperar los servicios críticos", "R03, R10", "A.8.14, A.8.13, A.5.30", "Pares D03, Bareos, bucket de respaldos, ejercicio de recuperación (S2_E3)"],
         ["Proteger la base de datos", "Aplicar los controles", "R06, R18", "A.8.22, A.8.3", "Reglas de bloqueo de pfSense; VLAN 32; pruebas de S2_E2"],
         ["Evitar el movimiento lateral", "Aplicar los controles", "R01, R06, R15", "A.8.22, A.8.20", f"18 VLAN en 12 zonas; {datos.resumen_reglas()['total']} reglas"],
-        ["Administrar de forma controlada", "Aplicar los controles", "R04, R07, R20", "A.5.15, A.8.2, A.8.5", "Bastión, Vaultwarden, RADIUS, rol de Proxmox"],
-        ["Detectar intrusiones", "Detectar incidentes a tiempo", "R13", "A.8.15, A.8.16", "SIEM01 (Wazuh), OpenCanary, Zabbix; IDS pendiente"],
+        ["Administrar de forma controlada", "Aplicar los controles", "R04, R07, R20", "A.5.15, A.8.2, A.8.5", "Bastión, Vaultwarden, RADIUS, rol TerraformProv en Proxmox (H03)"],
+        ["Detectar intrusiones", "Detectar incidentes a tiempo", "R13", "A.8.15, A.8.16", "SIEM01 (Wazuh), OpenCanary (100100), Suricata IDS en em0.31 (100120) y Zabbix"],
         ["Mantener la conectividad con la nube", "Cifrar el enlace", "R08, R09", "A.8.24, A.5.23", "Túnel WireGuard, firewall de la VPC (hallazgo H02)"],
         ["Cambiar sin romper", "Mantener la configuración trazable", "R17", "A.8.9, A.8.32", "Git, Terraform plan, Ansible --check, make verificar"],
         ["Cumplir la ley", "Cumplir la normativa", "R18", "A.5.34, A.5.31", "Política de datos y ética de este informe"],
@@ -300,9 +305,9 @@ def contenido():
     r.h1("Conclusiones")
     r.bullets(
         "El SGSI cubre todo el alcance de los diseños del Semestre 1 y se apoya en datos reales del repositorio, no en listas genéricas.",
-        f"De los 20 riesgos evaluados, {n_alto} están en nivel alto o crítico antes del tratamiento; con los controles previstos ninguno queda en ese nivel.",
-        "La auditoría interna encontró una no conformidad mayor, la contraseña en el repositorio, que tiene prioridad. Las demás tienen acción asignada.",
-        "Quedan por hacer, y no se declaran como hechas: la aprobación y revisión por la dirección, el ejercicio de recuperación y la ejecución de las pruebas de seguridad.")
+        f"De los 20 riesgos evaluados, {n_alto} están en nivel alto o crítico antes del tratamiento; con los controles implementados ninguno queda en ese nivel.",
+        "La auditoría interna cerró sus hallazgos prioritarios (H01, H03, H05, H06, H07 y H08, quedando 0 no conformidades mayores abiertas) y la Revisión por la Dirección quedó formalizada en el Acta N.° 001-2026-SGSI.",
+        "Tanto el ejercicio de recuperación (5/5 escenarios en S2_E3) como el barrido de pruebas de red y detección Suricata IDS (26/30 casos aprobados en S2_E2) fueron ejecutados y evidenciados en vivo.")
 
     r.biblio(
         "[1] International Organization for Standardization, \"ISO/IEC 27001:2022 Information security management systems — Requirements,\" Geneva, 2022.",
