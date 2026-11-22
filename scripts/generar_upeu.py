@@ -19,7 +19,7 @@ import docx
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
-from docx.shared import Cm
+from docx.shared import Cm, Pt
 from docx.text.paragraph import Paragraph
 
 from PIL import Image
@@ -234,7 +234,7 @@ def portada(doc, clave):
     campos = {4: "ENTREGABLE", 5: datos_p["entregable"],
               7: "ORGANIZACIÓN", 8: "Co-Logistic S.A.C.",
               10: "MARCO DE REFERENCIA", 11: "ISO/IEC 27001:2022 · ISO/IEC 27002:2022",
-              13: "EQUIPO",
+              13: "EQUIPO · X CICLO",
               15: "DOCENTE DEL CURSO", 16: "[Grado y nombre del docente]"}
     for i, texto in campos.items():
         p = P(i)
@@ -242,17 +242,22 @@ def portada(doc, clave):
             r._r.getparent().remove(r._r)
         p.runs[0].text = texto
     equipo_p = P(14)
-    for r in list(equipo_p.runs)[1:]:
+    for r in list(equipo_p.runs):
         r._r.getparent().remove(r._r)
     lineas_equipo = [
         "Jhack Ernesto Quispe Mamani · Abel Is-boset Guevara Huasco · David Edison Guerra Ordoñez",
         "Alvaro Kenji Cuti Magaño · Javier Kevin Tello Rivas · Richard Josef Yaqui Inocente",
         "Daniel Hernan Calderon Camacho · Joshua Alfonzo Javier Jurgen · Sebastian Chinchay Collachagua",
+        "Fernando Asin Gomez",
     ]
-    equipo_p.runs[0].text = lineas_equipo[0]
-    for linea in lineas_equipo[1:]:
-        equipo_p.runs[0].add_break()
-        equipo_p.add_run(linea)
+    for n, linea in enumerate(lineas_equipo):     # un run por línea; el salto va al final de la línea anterior
+        run = equipo_p.add_run(linea)
+        run.font.size = Pt(10)                     # 10 pt: cada línea de tres nombres cabe sin partirse
+        if n < len(lineas_equipo) - 1:
+            run.add_break()
+    # la portada debe caber en una página: «Lima – Perú» no puede pasar a la siguiente
+    P(2).paragraph_format.space_after = Pt(30)    # bajo la línea del logo: el estilo Intense Quote trae 48 pt
+    P(17).paragraph_format.space_after = Pt(12)   # antes de «Lima – Perú»: el estilo Salutation trae 47 pt
     fecha = P(18)
     for r in list(fecha.runs):
         fecha._p.remove(r._r)

@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Pipeline CI/CD WMS</title>
+<!-- Figura del pipeline CI/CD del WMS (backend + frontend). Fuente: .github/workflows/deploy.yml de cada repo,
+     roles Ansible wms y docker_host, pfSense acceso_remoto (Tailscale) y etapas/50-nube/main.tf.
+     Se exporta a PNG con:  node render_pipeline_cicd.js   (1920x1080 a escala 2) -->
+<style>
+  :root{
+    --navy:#043e67; --amber:#f5a800; --ink:#24364b; --mute:#5c6b79; --line:#d3dce6;
+    --soft:#f3f6f9; --navy-soft:#e8f0f7; --amber-soft:#fff6de; --ok:#1f7a4d; --ok-soft:#e6f4ec;
+    --bad:#b3261e; --bad-soft:#fdecea;
+    --mono:"SF Mono",Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{width:1920px;height:1080px;background:#fff;color:var(--ink);
+       font-family:-apple-system,"SF Pro Text","Helvetica Neue",Arial,sans-serif;position:relative;overflow:hidden}
+  .wrap{position:absolute;inset:0;padding:40px 60px 0}
+  .label{font-size:20px;font-weight:700;color:var(--mute);letter-spacing:.06em;text-transform:uppercase}
+  h1{font-size:42px;font-weight:800;color:var(--navy);margin-top:6px;letter-spacing:-.01em}
+  .sub{font-size:20px;color:var(--mute);margin-top:6px}
+  .rule{height:3px;background:var(--navy);margin-top:16px;border-radius:2px}
+
+  /* bandas de zona */
+  .zonas{display:grid;grid-template-columns:262px 300px 290px 300px 350px 218px;column-gap:16px;margin-top:18px}
+  .zona{font-size:14px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;padding:7px 12px;border-radius:6px;
+        color:#fff;text-align:center}
+  .z-gh{grid-column:1/3;background:#24364b}
+  .z-gcp{grid-column:3/4;background:#2a6db0}
+  .z-dc{grid-column:4/7;background:var(--navy)}
+
+  .grid{display:grid;grid-template-columns:262px 300px 290px 300px 350px 218px;grid-template-rows:282px 282px;
+        column-gap:16px;row-gap:18px;margin-top:14px;position:relative}
+  .card{background:#fff;border:2px solid var(--line);border-radius:12px;position:relative;overflow:hidden;
+        display:flex;flex-direction:column}
+  .card .hd{font-size:17px;font-weight:800;padding:10px 14px;color:#fff;background:var(--navy)}
+  .card .bd{padding:12px 14px;font-size:15.5px;line-height:1.38;flex:1;display:flex;flex-direction:column;gap:7px}
+  .back{border-left:8px solid var(--navy)}
+  .front{border-left:8px solid var(--amber)}
+  .front .hd{background:#8a5a00}
+  .shared .hd{background:#2a6db0}
+  .dc .hd{background:var(--navy)}
+  .span2{grid-row:1/3}
+  .repo{font-family:var(--mono);font-size:13px;font-weight:700;color:var(--ink);white-space:nowrap}
+  .muted{color:var(--mute)}
+  .chip{display:inline-block;font-size:13px;font-weight:700;padding:3px 8px;border-radius:5px;background:var(--soft);
+        color:var(--ink);border:1px solid var(--line)}
+  .code{font-family:var(--mono);font-size:13.5px;background:var(--soft);border:1px solid var(--line);border-radius:6px;padding:5px 8px}
+  ul.s{list-style:none;display:flex;flex-direction:column;gap:6px}
+  ul.s li{padding-left:16px;position:relative}
+  ul.s li:before{content:"";position:absolute;left:2px;top:9px;width:6px;height:6px;border-radius:50%;background:var(--navy)}
+  .front ul.s li:before{background:var(--amber)}
+  .tagimg{font-family:var(--mono);font-size:13px;font-weight:700;padding:6px 8px;border-radius:6px}
+  .tb{background:var(--navy-soft);color:var(--navy);border:1px solid #b9cfe3}
+  .tf{background:var(--amber-soft);color:#7a4f00;border:1px solid #f1d58a}
+  .box{border-radius:8px;padding:8px 10px;font-size:14.5px;line-height:1.35}
+  .box-navy{background:var(--navy-soft);border:1px solid #b9cfe3}
+  .box-ok{background:var(--ok-soft);border:1px solid #b5dcc6}
+  .box-bad{background:var(--bad-soft);border:1px solid #f3c1bc;color:#7d1c15}
+  .box b{color:var(--navy)}
+  .box-ok b{color:var(--ok)} .box-bad b{color:var(--bad)}
+  ol.n{list-style:none;counter-reset:n;display:flex;flex-direction:column;gap:9px}
+  ol.n li{counter-increment:n;padding-left:30px;position:relative;font-size:15px;line-height:1.33}
+  ol.n li:before{content:counter(n);position:absolute;left:0;top:0;width:22px;height:22px;border-radius:50%;
+        background:var(--navy);color:#fff;font-size:13px;font-weight:800;display:flex;align-items:center;justify-content:center}
+  .node{border:2px solid var(--navy);border-radius:10px;padding:9px 12px;background:#fff}
+  .node .t{font-weight:800;color:var(--navy);font-size:16px;display:flex;justify-content:space-between;align-items:center}
+  .step{font-size:12px;font-weight:800;color:#fff;background:var(--navy);padding:2px 7px;border-radius:4px;letter-spacing:.04em}
+  .node .l{font-size:14.5px;line-height:1.4;margin-top:5px}
+  .down{text-align:center;font-size:13.5px;font-weight:800;color:var(--ok);margin:3px 0}
+  .gate{position:absolute;font-size:13px;font-weight:800;color:var(--mute);background:#fff;border:2px dashed var(--line);
+        border-radius:8px;padding:6px 9px;text-align:center;line-height:1.3}
+  a{color:var(--navy);font-weight:800}
+  .pr{margin-top:auto;font-size:13px;font-weight:800;color:var(--mute);border:2px dashed var(--line);border-radius:7px;padding:4px 9px;text-align:center}
+
+  svg#flechas{position:absolute;inset:0;pointer-events:none;overflow:visible}
+
+  /* controles */
+  .ctr{position:absolute;left:60px;right:60px;top:868px;display:grid;grid-template-columns:repeat(4,1fr);gap:16px}
+  .c{border:2px solid var(--line);border-left:8px solid var(--navy);border-radius:10px;padding:10px 14px;background:#fff}
+  .c:nth-child(even){border-left-color:var(--amber)}
+  .c .k{font-size:14px;font-weight:800;color:var(--navy);letter-spacing:.02em}
+  .c .v{font-size:15px;line-height:1.35;margin-top:4px}
+  .ev{position:absolute;left:60px;right:60px;top:1010px;font-size:16px;color:var(--mute);display:flex;justify-content:space-between}
+  .ev b{color:var(--ink)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="label">S2 · Despliegue continuo de la aplicación</div>
+  <h1>Pipeline CI/CD del WMS: backend y frontend</h1>
+  <div class="sub">GitHub Actions → Google Artifact Registry → Tailscale → WMS01 y WMS02 en alta disponibilidad · cada push a <b>main</b> llega a producción sin intervención manual</div>
+  <div class="rule"></div>
+
+  <div class="zonas">
+    <div class="zona z-gh">GitHub Actions · CO-Logistic-project</div>
+    <div class="zona z-gcp">Google Cloud</div>
+    <div class="zona z-dc">Datacenter Co-Logistic · VLAN 31 Aplicaciones</div>
+  </div>
+
+  <div class="grid" id="grid">
+    <!-- Columna A: repositorios -->
+    <div class="card back" id="a1" style="grid-column:1;grid-row:1">
+      <div class="hd">Backend · API</div>
+      <div class="bd">
+        <div class="repo">wms-co-logistic-backend</div>
+        <div>Django 5.2 · DRF · Gunicorn</div>
+        <div class="muted" style="font-size:14px">Se dispara con:</div>
+        <div><span class="chip">push a main</span> <span class="chip">pull request</span> <span class="chip">manual</span></div>
+      </div>
+    </div>
+    <div class="card front" id="a2" style="grid-column:1;grid-row:2">
+      <div class="hd">Frontend · WMS web</div>
+      <div class="bd">
+        <div class="repo">wms-co-logistic-frontend</div>
+        <div>React 19 · Vite 8 · Nginx</div>
+        <div class="muted" style="font-size:14px">Se dispara con:</div>
+        <div><span class="chip">push a main</span> <span class="chip">pull request</span> <span class="chip">manual</span></div>
+      </div>
+    </div>
+
+    <!-- Columna B: CI -->
+    <div class="card back" id="b1" style="grid-column:2;grid-row:1">
+      <div class="hd">1 · CI: verificar y probar</div>
+      <div class="bd">
+        <ul class="s">
+          <li>Python 3.12 con caché de pip</li>
+          <li><span class="code">manage.py check</span></li>
+          <li><span class="code">manage.py test</span> · 98 pruebas unitarias</li>
+          <li>Claves efímeras solo para CI, con <b>DEBUG=False</b> como en producción</li>
+        </ul>
+        <div class="pr">Pull request: termina aquí (solo CI)</div>
+      </div>
+    </div>
+    <div class="card front" id="b2" style="grid-column:2;grid-row:2">
+      <div class="hd">1 · CI: lint, pruebas y build</div>
+      <div class="bd">
+        <ul class="s">
+          <li>Node 22 · <span class="code">npm ci</span></li>
+          <li><span class="code">eslint</span> · <span class="code">vitest</span> (10 archivos de prueba)</li>
+          <li><span class="code">tsc -b</span> + <span class="code">vite build</span> de producción</li>
+          <li>Si algo falla, el pipeline se detiene y no se publica nada</li>
+        </ul>
+        <div class="pr">Pull request: termina aquí (solo CI)</div>
+      </div>
+    </div>
+
+    <!-- Columna C: registro -->
+    <div class="card shared span2" id="c" style="grid-column:3">
+      <div class="hd">2 · Build &amp; Push de la imagen</div>
+      <div class="bd" style="gap:9px">
+        <div>Docker Buildx empaqueta cada app en una imagen y la sube a <b>Artifact Registry</b></div>
+        <div class="code" style="font-size:13px">wms-repo · southamerica-west1</div>
+        <div class="tagimg tb">wms-backend:&lt;SHA&gt;  :latest</div>
+        <div class="tagimg tf">wms-frontend:&lt;SHA&gt; :latest</div>
+        <div class="box box-navy"><b>Sin llaves guardadas:</b> GitHub se autentica con Workload Identity Federation (OIDC) y recibe un token temporal de la cuenta <span style="font-family:var(--mono);font-size:13px">github-ci</span></div>
+        <div class="box box-ok"><b>Etiqueta = SHA del commit:</b> cada versión es inmutable, se sabe qué código corre y se puede volver atrás</div>
+      </div>
+    </div>
+
+    <!-- Columna D: acceso -->
+    <div class="card dc span2" id="d" style="grid-column:4">
+      <div class="hd">3 · Acceso privado al datacenter</div>
+      <div class="bd" style="gap:10px">
+        <ol class="n">
+          <li>El runner entra a <b>Tailscale</b> con un nombre efímero por ejecución</li>
+          <li><b>pfSense</b> es el subnet router de 10.10.0.0/16: no se abre ningún puerto a Internet</li>
+          <li>SSH con el usuario <b>ci-deploy</b>: sin sudo, solo grupo docker</li>
+          <li>Token del registro en un DOCKER_CONFIG temporal que se borra al terminar</li>
+          <li>La imagen se descarga por el proxy de INFRA01 (:3142)</li>
+        </ol>
+        <div class="box box-navy" style="margin-top:auto"><b>Un despliegue a la vez:</b> backend y frontend comparten el candado <span style="font-family:var(--mono);font-size:13px">wms-deploy-onpremise</span></div>
+      </div>
+    </div>
+
+    <!-- Columna E: rolling -->
+    <div class="card dc span2" id="e" style="grid-column:5">
+      <div class="hd">4 · Despliegue rolling: un nodo a la vez</div>
+      <div class="bd" style="gap:4px">
+        <div class="node" id="n1">
+          <div class="t">WMS01 · 10.10.31.11 <span class="step">PASO 1</span></div>
+          <div class="l">docker pull &lt;SHA&gt; → <b>backend:</b> migrate en la BD, una sola vez → compose up → espera <b>/api/health/</b> (hasta 40 s)</div>
+        </div>
+        <div class="down">▼ solo si responde sano</div>
+        <div class="node" id="n2">
+          <div class="t">WMS02 · 10.10.31.12 <span class="step">PASO 2</span></div>
+          <div class="l">Mismo proceso, sin migrate. El frontend verifica la SPA por HTTPS y el proxy <b>/api/</b></div>
+        </div>
+        <div class="box box-bad" style="margin-top:8px"><b>Si WMS01 falla:</b> el job se detiene y WMS02 sigue atendiendo con la versión anterior</div>
+      </div>
+    </div>
+
+    <!-- Columna F: producción -->
+    <div class="card dc span2" id="f" style="grid-column:6">
+      <div class="hd">5 · Producción</div>
+      <div class="bd" style="gap:9px">
+        <div class="box box-ok" style="font-size:14px"><b>VIP 10.10.31.10</b><br>keepalived<br><a href="https://wms.cologistic.net">wms.cologistic.net</a></div>
+        <div style="font-size:14px">Si un nodo falla su health check, la VIP pasa al otro: <b>RTO medido 3,44 s</b></div>
+        <div class="box box-navy" style="font-size:14px"><b>PostgreSQL Patroni</b><br>VIP 10.10.32.10<br>db.cologistic.net</div>
+        <div class="box" style="font-size:14px;background:var(--soft);border:1px solid var(--line)"><b style="color:#2a6db0">DRP en GCP</b><br>gcp-wms-drp usa las mismas imágenes del registro</div>
+      </div>
+    </div>
+  </div>
+
+  <svg id="flechas"></svg>
+</div>
+
+<div class="ctr">
+  <div class="c"><div class="k">ISO 27001 A.8.32 · Gestión de cambios</div><div class="v">Todo cambio entra por push o PR a main y queda registrado en GitHub Actions con su SHA.</div></div>
+  <div class="c"><div class="k">A.5.17 · Información de autenticación</div><div class="v">OIDC sin llave JSON; el token y la llave SSH solo viven durante la ejecución.</div></div>
+  <div class="c"><div class="k">A.8.2 · Accesos privilegiados</div><div class="v">ci-deploy no tiene sudo y su llave SSH es exclusiva del pipeline.</div></div>
+  <div class="c"><div class="k">A.8.14 · Redundancia</div><div class="v">Rolling en dos nodos + VIP keepalived: actualizar no detiene el WMS.</div></div>
+</div>
+<div class="ev">
+  <span>Última ejecución completa exitosa: <b>12/11/2026</b> · backend <b>3 min 23 s</b> · frontend <b>4 min 3 s</b> (CI → imagen → WMS01 → WMS02)</span>
+  <span>Fuente: <b>.github/workflows/deploy.yml</b> de cada repositorio</span>
+</div>
+
+<script>
+  // Flechas entre tarjetas, calculadas con la posición real de cada una.
+  const svg = document.getElementById('flechas');
+  const base = document.querySelector('.wrap').getBoundingClientRect();
+  const r = id => { const b = document.getElementById(id).getBoundingClientRect();
+    return {l:b.left-base.left, r:b.right-base.left, t:b.top-base.top, b:b.bottom-base.top, cy:(b.top+b.bottom)/2-base.top}; };
+  const NS = 'http://www.w3.org/2000/svg';
+  svg.innerHTML = `<defs>
+    <marker id="m" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0L10 5L0 10z" fill="#043e67"/></marker>
+    <marker id="ma" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0L10 5L0 10z" fill="#c98a00"/></marker></defs>`;
+  const linea = (d, color='#043e67', m='m') => { const p = document.createElementNS(NS,'path');
+    p.setAttribute('d', d); p.setAttribute('fill','none'); p.setAttribute('stroke', color); p.setAttribute('stroke-width','3');
+    p.setAttribute('marker-end', `url(#${m})`); svg.appendChild(p); };
+  const a1=r('a1'),a2=r('a2'),b1=r('b1'),b2=r('b2'),c=r('c'),d=r('d'),e=r('e'),f=r('f');
+  linea(`M${a1.r} ${a1.cy} H${b1.l-2}`);
+  linea(`M${a2.r} ${a2.cy} H${b2.l-2}`, '#c98a00', 'ma');
+  const cx = c.l - 2, ym1 = c.t + (c.b-c.t)*0.36, ym2 = c.t + (c.b-c.t)*0.64;
+  linea(`M${b1.r} ${b1.cy} H${cx}`);
+  linea(`M${b2.r} ${b2.cy} H${cx}`, '#c98a00', 'ma');
+  const mid = (c.t+c.b)/2;
+  linea(`M${c.r} ${mid} H${d.l-2}`);
+  linea(`M${d.r} ${mid} H${e.l-2}`);
+  linea(`M${e.r} ${mid} H${f.l-2}`);
+</script>
+</body>
+</html>

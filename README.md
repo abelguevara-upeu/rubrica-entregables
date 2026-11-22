@@ -13,6 +13,9 @@ Definidos de forma centralizada en `scripts/generar_upeu.py` (`portada()`):
 - Jhack Ernesto Quispe Mamani · Abel Is-boset Guevara Huasco · David Edison Guerra Ordoñez
 - Alvaro Kenji Cuti Magaño · Javier Kevin Tello Rivas · Richard Josef Yaqui Inocente
 - Daniel Hernan Calderon Camacho · Joshua Alfonzo Javier Jurgen · Sebastian Chinchay Collachagua
+- Fernando Asin Gomez
+
+Ciclo: X (aparece en la portada como «EQUIPO · X CICLO»).
 
 ---
 
